@@ -421,7 +421,12 @@ function _pickSong() {
 }
 
 function stopMusic() {
-  if (bgmAudio) { try{bgmAudio.pause();}catch(e){} try{bgmAudio.src='';}catch(e){} bgmAudio=null; }
+  if (!bgmAudio) return;
+  const a = bgmAudio;
+  bgmAudio = null;
+  try { a.onended = null; } catch(e) {}
+  try { a.pause(); } catch(e) {}
+  // src='' はiOSで誤動作（再生継続やエラーイベント発火）するため使用しない
 }
 
 // 通常再生（プールから取得）
@@ -485,11 +490,13 @@ function fadeOutMusic(duration=1500, onDone=null) {
 
 // ========== CONSTANTS ==========
 const ROLES = {
-  WEREWOLF: { name: '人狼',  icon: '🐺', team: 'wolf',    color: '#ef4444', desc: '夜に村人を1人襲います。村人チームを全滅させれば人狼チームの勝利！' },
-  VILLAGER: { name: '村人',  icon: '👤', team: 'village', color: '#22c55e', desc: '特殊な能力はありませんが、昼の議論と投票で人狼を見つけましょう。' },
-  SEER:     { name: '占い師',icon: '🔮', team: 'village', color: '#818cf8', desc: '夜に1人を選んで人狼かどうかを占えます。情報を上手く使いましょう。' },
-  DOCTOR:   { name: '騎士',  icon: '💊', team: 'village', color: '#34d399', desc: '夜に1人を選んで人狼の攻撃から守れます。誰を守るか見極めが重要。' },
-  MADMAN:   { name: '狂人',  icon: '🃏', team: 'wolf',    color: '#f59e0b', desc: '人狼の仲間ですが人狼の行動は知りません。人狼チームの勝利を目指します。' },
+  WEREWOLF: { name: '人狼',   icon: '🐺', team: 'wolf',    color: '#ef4444', desc: '夜に村人を1人襲います。村人チームを全滅させれば人狼チームの勝利！' },
+  VILLAGER: { name: '村人',   icon: '👤', team: 'village', color: '#22c55e', desc: '特殊な能力はありませんが、昼の議論と投票で人狼を見つけましょう。' },
+  SEER:     { name: '占い師', icon: '🔮', team: 'village', color: '#818cf8', desc: '夜に1人を選んで人狼かどうかを占えます。情報を上手く使いましょう。初日のみ行動可能。' },
+  DOCTOR:   { name: '騎士',   icon: '💊', team: 'village', color: '#34d399', desc: '夜に1人を選んで人狼の攻撃から守れます。同じ人を連続で守ることはできません。' },
+  MADMAN:   { name: '狂人',   icon: '🃏', team: 'wolf',    color: '#f59e0b', desc: '人狼の仲間ですが人狼の行動は知りません。人狼チームの勝利を目指します。' },
+  MEDIUM:   { name: '霊媒師', icon: '👁️', team: 'village', color: '#a78bfa', desc: '処刑された人の役職を夜に知ることができます。その情報を活かして村を守れ！' },
+  NEKOMATA: { name: '猫又',   icon: '🐱', team: 'village', color: '#fb923c', desc: '人狼に夜襲われると人狼を1人道連れにします。処刑されると無関係の1人も道連れ。' },
 };
 
 const CONFIGS = {
@@ -498,8 +505,10 @@ const CONFIGS = {
   6:  ['WEREWOLF','WEREWOLF','SEER','DOCTOR','VILLAGER','VILLAGER'],
   7:  ['WEREWOLF','WEREWOLF','SEER','DOCTOR','MADMAN','VILLAGER','VILLAGER'],
   8:  ['WEREWOLF','WEREWOLF','SEER','DOCTOR','MADMAN','VILLAGER','VILLAGER','VILLAGER'],
-  9:  ['WEREWOLF','WEREWOLF','WEREWOLF','SEER','DOCTOR','MADMAN','VILLAGER','VILLAGER','VILLAGER'],
-  10: ['WEREWOLF','WEREWOLF','WEREWOLF','SEER','DOCTOR','MADMAN','VILLAGER','VILLAGER','VILLAGER','VILLAGER'],
+  9:  ['WEREWOLF','WEREWOLF','WEREWOLF','SEER','DOCTOR','MEDIUM','MADMAN','VILLAGER','VILLAGER'],
+  10: ['WEREWOLF','WEREWOLF','WEREWOLF','SEER','DOCTOR','MEDIUM','MADMAN','VILLAGER','VILLAGER','VILLAGER'],
+  11: ['WEREWOLF','WEREWOLF','WEREWOLF','SEER','DOCTOR','MEDIUM','NEKOMATA','MADMAN','VILLAGER','VILLAGER','VILLAGER'],
+  12: ['WEREWOLF','WEREWOLF','WEREWOLF','WEREWOLF','SEER','DOCTOR','MEDIUM','NEKOMATA','MADMAN','VILLAGER','VILLAGER','VILLAGER'],
 };
 
 // ========== CPU PERSONALITIES ==========
@@ -513,19 +522,22 @@ function initState() {
   S = {
     phase: 'setup',          // setup | role_reveal | night | day | vote | vote_result | game_over
     playerCount: 6,
-    playerNames: Array.from({length:10}, (_,i) => `プレイヤー${i+1}`),
+    playerNames: Array.from({length:12}, (_,i) => `プレイヤー${i+1}`),
     players: [],             // [{name, role, alive}]
     day: 0,
     // role reveal
     revealIdx: 0,
     revealShown: false,
     // night
-    nightSteps: [],          // [{type:'seer'|'doctor'|'wolf', actor, actors}]
+    nightSteps: [],          // [{type:'seer'|'doctor'|'wolf'|'medium'|'nekomata', ...}]
     nightStepIdx: 0,
     nightSub: 'pass',        // pass | select | result
     wolfTarget: null,
     _wolfLocalSel: null,     // ステルス選択（グリッドタップ）
     doctorTarget: null,
+    lastDoctorTarget: null,  // 前夜に守った対象（連続護衛禁止）
+    lastExecuted: null,      // 直前に処刑されたプレイヤー名（霊媒師用）
+    lastExecutedRole: null,  // 直前処刑者の役職（霊媒師用）
     seerResult: null,        // {target, isWolf}
     seerHistory: [],         // [{day, target, isWolf}]
     elimLastNight: null,     // player obj
@@ -564,12 +576,21 @@ function log(msg) { S.log.push(msg); }
 
 function nightSteps() {
   const steps = [];
+  // 霊媒師ステップ: 処刑があった場合のみ（夜の始めに霊媒師が結果を見る）
+  if (S.lastExecuted && S.lastExecutedRole) {
+    const mediums = aliveByRole('MEDIUM');
+    if (mediums.length) steps.push({type:'medium', actor: mediums[0]});
+  }
+  // 占い師（初日含め毎夜）
   const seers = aliveByRole('SEER');
   if (seers.length) steps.push({type:'seer', actor: seers[0]});
-  const docs = aliveByRole('DOCTOR');
-  if (docs.length) steps.push({type:'doctor', actor: docs[0]});
-  const wolves = aliveByRole('WEREWOLF');
-  if (wolves.length) steps.push({type:'wolf', actors: wolves});
+  // 騎士・人狼は初日は行動しない
+  if (S.day > 1) {
+    const docs = aliveByRole('DOCTOR');
+    if (docs.length) steps.push({type:'doctor', actor: docs[0]});
+    const wolves = aliveByRole('WEREWOLF');
+    if (wolves.length) steps.push({type:'wolf', actors: wolves});
+  }
   return steps;
 }
 
@@ -690,10 +711,29 @@ function renderNight() {
       <button class="btn btn-success" id="morning">☀️　朝になりました</button>
     `;
   }
-  if (step.type === 'seer')   return renderSeer(step.actor);
-  if (step.type === 'doctor') return renderDoctor(step.actor);
-  if (step.type === 'wolf')   return renderWolf(step.actors);
+  if (step.type === 'seer')    return renderSeer(step.actor);
+  if (step.type === 'medium')  return renderMedium(step.actor);
+  if (step.type === 'doctor')  return renderDoctor(step.actor);
+  if (step.type === 'wolf')    return renderWolf(step.actors);
   return '';
+}
+
+function renderMedium(actor) {
+  const hdr = ph('🌙',`第 ${S.day} 夜`,'村は静まり返っています...','#60a5fa');
+  if (S.nightSub === 'pass') return hdr + passScreen(actor.name,'霊媒師','mediumReady','👁️　霊視する','#a78bfa');
+  const role = S.lastExecutedRole;
+  const info = ROLES[role] || {};
+  const isWolf = (role === 'WEREWOLF' || role === 'MADMAN');
+  const c = isWolf ? '#ef4444' : '#22c55e';
+  return `${hdr}
+    <div class="card-colored" style="text-align:center; border:2px solid ${c}; background:${c}18;">
+      <h3 style="color:#a78bfa; margin-bottom:.4rem;">👁️ 霊視結果</h3>
+      <h2 style="color:#fff; margin:.3rem 0;">${esc(S.lastExecuted||'')}</h2>
+      <div style="font-size:2rem; margin:.3rem 0;">${info.icon||'?'}</div>
+      <p style="color:${c}; font-size:1.4rem; font-weight:800; margin:.3rem 0;">${info.name||role}</p>
+      <p style="color:#64748b; font-size:.8rem; margin:0;">${isWolf?'🚨 人狼チームでした！':'✅ 村人チームでした'}</p>
+    </div>
+    <button class="btn btn-night" id="mediumDone">確認しました ▶</button>`;
 }
 
 function renderSeer(actor) {
@@ -730,10 +770,15 @@ function renderDoctor(actor) {
   const hdr = ph('🌙',`第 ${S.day} 夜`,'村は静まり返っています...','#60a5fa');
   if (S.nightSub === 'pass') return hdr + passScreen(actor.name,'騎士','docReady','💊　護衛を行う','#34d399');
 
-  const targets = alive();
+  // 前夜に守った人は選択不可（連続護衛禁止）
+  const targets = alive().filter(p => p.name !== S.lastDoctorTarget);
+  const note = S.lastDoctorTarget
+    ? `<p style="color:#64748b;font-size:.78rem;margin:.1rem 0 .6rem;">※ ${esc(S.lastDoctorTarget)} は昨夜守ったため今夜は選べません</p>`
+    : '';
   return `${hdr}
     <div class="card">
-      <h3 style="color:#34d399; margin-bottom:0.7rem;">💊 ${esc(actor.name)} さん、誰を護衛しますか？</h3>
+      <h3 style="color:#34d399; margin-bottom:0.4rem;">💊 ${esc(actor.name)} さん、誰を護衛しますか？</h3>
+      ${note}
       <label>守る相手</label>
       ${mkSelect('docTgt', targets)}
       <button class="btn btn-primary" id="docConfirm" style="margin-top:0.5rem;">🛡️　護衛する</button>
@@ -771,7 +816,7 @@ function renderDay() {
       <p style="color:#ef4444; font-size:.8rem; font-weight:700; letter-spacing:.1em; margin:0 0 .4rem;">💀 昨夜の犠牲者</p>
       <div style="font-size:3rem; margin:.3rem 0;">💀</div>
       <h2 style="color:#fff; margin:.3rem 0; font-size:1.8rem;">${esc(elim.name)}</h2>
-      <p style="color:#64748b; font-size:.85rem; margin:0;">役職は不明…（処刑されると役職が判明します）</p>
+      <p style="color:#64748b; font-size:.85rem; margin:0;">役職は不明…（ゲーム終了時に全員分公開されます）</p>
     </div>`;
   } else {
     elimCard = `<div class="card-colored" style="text-align:center; border:1px solid #22c55e; background:#22c55e18;">
@@ -814,9 +859,7 @@ function renderVote() {
 }
 
 function renderVoteResult() {
-  const {executed, tally} = S.voteResult;
-  const execP = S.players.find(p => p.name === executed);
-  const info = ROLES[execP.role];
+  const {executed, tally, nekomataVictim} = S.voteResult;
   const total = Object.values(tally).reduce((a,b)=>a+b,0);
 
   const bars = Object.entries(tally)
@@ -831,12 +874,11 @@ function renderVoteResult() {
     ? `<button class="btn btn-primary" id="goGameOver">🏆　ゲーム結果を見る</button>`
     : `<button class="btn btn-night" id="goNight">🌙　夜に進む</button>`;
 
-  const isWolf = execP.role === 'WEREWOLF';
-  const isMad  = execP.role === 'MADMAN';
-  const resultMsg = isWolf ? '🎉 人狼を倒しました！村人チームの勝利に近づいた！'
-                 : isMad  ? '😅 狂人でした…人狼チームの仲間でした！'
-                           : '😢 村人が処刑されました…人狼はまだ潜んでいる';
-  const resultColor = isWolf ? '#4ade80' : isMad ? '#fbbf24' : '#f87171';
+  const nekHtml = nekomataVictim
+    ? `<div style="margin-top:.8rem;padding:.6rem;background:rgba(251,146,60,.1);border:1px solid #fb923c44;border-radius:10px;color:#fb923c;font-size:.82rem;text-align:center;">
+        🐱 猫又の道連れ: <strong>${esc(nekomataVictim)}</strong> も倒れた！
+       </div>` : '';
+
   return `
     ${ph('⚖️',`第${S.day}日 処刑結果`,'村人会議の結論が出ました','#f87171')}
     <div class="card">
@@ -846,13 +888,11 @@ function renderVoteResult() {
     <div class="vote-drama" style="text-align:center; padding:1.5rem; border-radius:16px;
          border:2px solid #ef4444; background:linear-gradient(135deg,#1a0505,#2d0a0a); margin:.6rem 0;">
       <p style="color:#f87171; font-size:.78rem; font-weight:700; letter-spacing:.12em; margin:0 0 .5rem;">⚖️ 処刑決定</p>
-      <div style="font-size:3rem; line-height:1; margin:.4rem 0;">${info.icon}</div>
+      <div style="font-size:3rem; line-height:1; margin:.4rem 0;">⚖️</div>
       <div style="font-size:2rem; font-weight:900; color:#fff; margin:.4rem 0;">${esc(executed)}</div>
-      <div style="font-size:1rem; color:#94a3b8; margin-bottom:.8rem;">${info.name}</div>
-      <div style="border-top:1px solid rgba(255,255,255,.1); padding-top:.8rem; color:${resultColor}; font-size:.88rem; font-weight:700;">
-        ${resultMsg}
-      </div>
+      <div style="font-size:.88rem; color:#64748b; margin-bottom:.8rem;">役職は…ゲームオーバー時に公開</div>
     </div>
+    ${nekHtml}
     ${nextBtn}
   `;
 }
@@ -905,7 +945,7 @@ function saveNames() {
 function bindEvents() {
   // SETUP
   on('dec', () => { if (S.playerCount > 4) { saveNames(); S.playerCount--; render(); } });
-  on('inc', () => { if (S.playerCount < 10) { saveNames(); S.playerCount++; render(); } });
+  on('inc', () => { if (S.playerCount < 12) { saveNames(); S.playerCount++; render(); } });
   on('start', () => {
     saveNames();
     const names = S.playerNames.slice(0, S.playerCount).map(n => n.trim());
@@ -952,7 +992,11 @@ function bindEvents() {
     render();
   });
 
-  // NIGHT - doctor
+  // NIGHT - medium（霊媒師）
+  on('mediumReady', () => { S.nightSub = 'select'; render(); });
+  on('mediumDone',  () => { S.nightStepIdx++; S.nightSub = 'pass'; render(); });
+
+  // NIGHT - doctor（連続護衛禁止）
   on('docReady',    () => { S.nightSub = 'select'; render(); });
   on('docConfirm',  () => {
     S.doctorTarget = val('docTgt');
@@ -977,11 +1021,28 @@ function bindEvents() {
     const wt = S.wolfTarget;
     const dt = S.doctorTarget;
 
-    if (wt && wt !== dt) {
+    // 騎士護衛対象を記録（次夜の連続護衛禁止チェック用）
+    if (dt) S.lastDoctorTarget = dt;
+
+    if (S.day === 1) {
+      // 初日: 人狼行動なし → 死者なし
+      S.elimLastNight = null;
+    } else if (wt && wt !== dt) {
       const victim = S.players.find(p => p.name === wt);
-      victim.alive = false;
-      S.elimLastNight = victim;
-      log(`第${S.day}夜: ${wt} が人狼に襲われました`);
+      if (victim) {
+        victim.alive = false;
+        S.elimLastNight = victim;
+        log(`第${S.day}夜: ${wt} が人狼に襲われました`);
+        // 猫又ルール: 猫又が夜に殺されると人狼を1人道連れ
+        if (victim.role === 'NEKOMATA') {
+          const wolves = S.players.filter(p => p.alive && p.role === 'WEREWOLF');
+          if (wolves.length) {
+            const dragged = wolves[Math.floor(Math.random()*wolves.length)];
+            dragged.alive = false;
+            log(`第${S.day}夜: 猫又の道連れで ${dragged.name}（人狼）も倒れました`);
+          }
+        }
+      }
     } else {
       if (wt && wt === dt) log(`第${S.day}夜: 騎士が ${wt} を護衛しました！`);
       S.elimLastNight = null;
@@ -1028,8 +1089,21 @@ function bindEvents() {
       const executed = top[Math.floor(Math.random()*top.length)];
       const execP = S.players.find(p => p.name === executed);
       execP.alive = false;
-      log(`第${S.day}日: ${executed}（${ROLES[execP.role].name}）が処刑されました`);
-      S.voteResult = {executed, tally};
+      log(`第${S.day}日: ${executed} が処刑されました`); // 役職はゲームオーバー時に公開
+      // 霊媒師用に処刑情報を記録
+      S.lastExecuted = executed;
+      S.lastExecutedRole = execP.role;
+      // 猫又ルール: 処刑された場合、ランダムに生存者を1人道連れ
+      let nekomataVictim = null;
+      if (execP.role === 'NEKOMATA') {
+        const bystanders = S.players.filter(p => p.alive && p.name !== executed);
+        if (bystanders.length) {
+          nekomataVictim = bystanders[Math.floor(Math.random()*bystanders.length)];
+          nekomataVictim.alive = false;
+          log(`第${S.day}日: 猫又の道連れで ${nekomataVictim.name} も倒れました`);
+        }
+      }
+      S.voteResult = {executed, tally, nekomataVictim: nekomataVictim?.name};
       S.winner = checkWin();
       S.phase = 'vote_result';
     }
@@ -1043,6 +1117,10 @@ function bindEvents() {
     S.nightStepIdx = 0;
     S.nightSub = 'pass';
     S.elimLastNight = null;
+    // 騎士護衛対象のリセット（当夜から新たな護衛対象を選べる。lastDoctorTargetは記録済み）
+    S.doctorTarget = null;
+    S.wolfTarget = null;
+    S._wolfLocalSel = null;
     S.phase = 'night';
     render();
   });
@@ -1101,7 +1179,7 @@ function bindEvents() {
     }
   });
   on('oCpuInc', () => {
-    if ((O.cpuCount||0) < 6) {
+    if ((O.cpuCount||0) < 9) {
       O.cpuCount++;
       if (mode==='p2p') { render(); } else wsSend({type:'set_cpu_count',count:O.cpuCount});
       render();
@@ -1110,7 +1188,7 @@ function bindEvents() {
 
   // SOLO SETUP
   on('soloDec',   () => { if ((O.soloTotal||5) > 4) { O.soloTotal--; render(); } });
-  on('soloInc',   () => { if ((O.soloTotal||5) < 10) { O.soloTotal++; render(); } });
+  on('soloInc',   () => { if ((O.soloTotal||5) < 12) { O.soloTotal++; render(); } });
   on('soloStart', () => {
     const name = (val('soloName')||'').trim() || 'あなた';
     O.playerName = name;
@@ -1339,7 +1417,7 @@ const SoloEngine = (() => {
 
   // ── 初期化 ────────────────────────────────────────────
   function init(humanName, total) {
-    total = Math.max(4, Math.min(10, total));
+    total = Math.max(4, Math.min(12, total));
     const cpuPool = shuffle(CPU_NAMES.filter(n=>n!==humanName));
     const players = [{ name: humanName, isCpu: false, alive: true, role: '' }];
     for (let i=1; i<total; i++)
@@ -1353,6 +1431,7 @@ const SoloEngine = (() => {
     R = {
       players, day: 0, phase: 'role',
       wolfTarget: null, doctorTarget: null,
+      lastDoctorTarget: null, lastExecuted: null, lastExecutedRole: null,
       humanNightDone: false, cpuNightDone: false,
       humanWolfChoice: null,
       discMsgs: [], discOrder: [], discIdx: 0, discRound: 1,
@@ -1403,18 +1482,34 @@ const SoloEngine = (() => {
     const al = alive();
     emit({ type: 'night_start', day: R.day });
 
+    // 霊媒師（処刑があった場合）
     const human = R.players[0];
+    if (human.alive && human.role==='MEDIUM' && R.lastExecuted) {
+      emit({ type:'medium_reveal', target:R.lastExecuted, role:R.lastExecutedRole });
+    }
+
     if (human.alive) {
       const others = al.filter(p=>p!==human);
-      if (human.role==='WEREWOLF') {
-        const wolfNames = al.filter(p=>p.role==='WEREWOLF').map(p=>p.name);
-        emit({ type:'action_needed', action:'wolf', targets:others.map(p=>({name:p.name})), wolf_names:wolfNames });
-      } else if (human.role==='SEER') {
-        emit({ type:'action_needed', action:'seer', targets:others.map(p=>({name:p.name})) });
-      } else if (human.role==='DOCTOR') {
-        emit({ type:'action_needed', action:'doctor', targets:al.map(p=>({name:p.name})) });
+      // 初日は占い師のみ行動可能
+      if (R.day === 1) {
+        if (human.role==='SEER') {
+          emit({ type:'action_needed', action:'seer', targets:others.map(p=>({name:p.name})) });
+        } else {
+          R.humanNightDone = true;
+        }
       } else {
-        R.humanNightDone = true;
+        if (human.role==='WEREWOLF') {
+          const wolfNames = al.filter(p=>p.role==='WEREWOLF').map(p=>p.name);
+          emit({ type:'action_needed', action:'wolf', targets:others.filter(p=>p.role!=='WEREWOLF').map(p=>({name:p.name})), wolf_names:wolfNames });
+        } else if (human.role==='SEER') {
+          emit({ type:'action_needed', action:'seer', targets:others.map(p=>({name:p.name})) });
+        } else if (human.role==='DOCTOR') {
+          // 前夜に守った人は選択肢から除外（連続護衛禁止）
+          const docTargets = al.filter(p=>p.name!==R.lastDoctorTarget);
+          emit({ type:'action_needed', action:'doctor', targets:docTargets.map(p=>({name:p.name})), last_protected:R.lastDoctorTarget });
+        } else {
+          R.humanNightDone = true;
+        }
       }
     } else {
       R.humanNightDone = true;
@@ -1429,38 +1524,58 @@ const SoloEngine = (() => {
 
   function doCpuNight() {
     const al = alive();
-    // 人狼CPUの標的
-    const cpuWolves = al.filter(p=>p.isCpu && p.role==='WEREWOLF');
-    const vill = al.filter(p=>p.role!=='WEREWOLF');
-    if (cpuWolves.length && vill.length) {
-      R.wolfTarget = (topAcc(vill) || rand(vill)).name;
-    }
-    // 占い師CPU
+    // 初日は占い師CPUのみ行動
     const cpuSeer = al.find(p=>p.isCpu && p.role==='SEER');
     if (cpuSeer) {
       const unknowns = al.filter(p=>p!==cpuSeer && R.seerKnown[p.name]===undefined);
       const tgt = unknowns.length ? rand(unknowns) : rand(al.filter(p=>p!==cpuSeer));
       if (tgt) R.seerKnown[tgt.name] = (tgt.role==='WEREWOLF');
     }
-    // 騎士CPU
+    if (R.day === 1) return; // 初日は騎士・人狼行動なし
+    // 人狼CPUの標的
+    const cpuWolves = al.filter(p=>p.isCpu && p.role==='WEREWOLF');
+    const vill = al.filter(p=>p.role!=='WEREWOLF');
+    if (cpuWolves.length && vill.length) {
+      R.wolfTarget = (topAcc(vill) || rand(vill)).name;
+    }
+    // 騎士CPU（連続護衛禁止）
     const cpuDoc = al.find(p=>p.isCpu && p.role==='DOCTOR');
     if (cpuDoc) {
-      R.doctorTarget = (rand(vill.length ? vill : al)).name;
+      const docCandidates = (vill.length ? vill : al).filter(p=>p.name!==R.lastDoctorTarget);
+      const tgt = rand(docCandidates.length ? docCandidates : (vill.length ? vill : al));
+      if (tgt) R.doctorTarget = tgt.name;
     }
   }
 
   function resolveNight() {
     if (R.resolveDone) return;
     R.resolveDone = true;
-    const wolf = R.humanWolfChoice || R.wolfTarget;
+    const wt = R.humanWolfChoice || R.wolfTarget;
+    const dt = R.doctorTarget;
+    // 騎士護衛対象を次夜用に記録（連続護衛禁止）
+    R.lastDoctorTarget = dt;
+    R.wolfTarget = null; R.doctorTarget = null; R.humanWolfChoice = null;
+
     let victim = null;
-    if (wolf && alive().some(p=>p.role==='WEREWOLF')) {
-      if (R.doctorTarget === wolf) {
+    if (R.day > 1 && wt && alive().some(p=>p.role==='WEREWOLF')) {
+      // 初日は人狼行動なし
+      if (dt === wt) {
         R.log.push(`第${R.day}夜: 騎士が守り、誰も死ななかった`);
       } else {
-        const p = byName(wolf);
-        if (p && p.alive) { p.alive=false; victim=p; }
-        R.log.push(`第${R.day}夜: ${wolf} が人狼に襲われた`);
+        const p = byName(wt);
+        if (p && p.alive) {
+          p.alive = false; victim = p;
+          R.log.push(`第${R.day}夜: ${wt} が人狼に襲われた`);
+          // 猫又ルール: 猫又が夜に殺されると人狼を1人道連れ
+          if (p.role === 'NEKOMATA') {
+            const wolves = alive().filter(x=>x.role==='WEREWOLF');
+            if (wolves.length) {
+              const dragged = rand(wolves);
+              dragged.alive = false;
+              R.log.push(`第${R.day}夜: 猫又の道連れで ${dragged.name}（人狼）も倒れた`);
+            }
+          }
+        }
       }
     }
     const win = checkWin();
@@ -1592,15 +1707,34 @@ const SoloEngine = (() => {
     if (!executed && al.length) executed = rand(al).name;
     const execP = byName(executed);
     if (execP) execP.alive = false;
-    R.log.push(`第${R.day}日: ${executed}（${ROLES[execP?.role]?.name}）が処刑された`);
+    R.log.push(`第${R.day}日: ${executed} が処刑された`);
+    // 霊媒師用に処刑情報を保存
+    R.lastExecuted = executed;
+    R.lastExecutedRole = execP?.role;
+    // 猫又ルール: 処刑時にランダムな生存者を道連れ
+    let nekomataVictim = null;
+    if (execP?.role === 'NEKOMATA') {
+      const bystanders = alive(); // execP は既に alive=false
+      if (bystanders.length) {
+        nekomataVictim = rand(bystanders);
+        nekomataVictim.alive = false;
+        R.log.push(`第${R.day}日: 猫又の道連れで ${nekomataVictim.name} も倒れた`);
+      }
+    }
     const win = checkWin();
     emit({
       type: 'vote_result',
       executed, executed_role: execP?.role, tally: count,
+      nekomata_victim: nekomataVictim?.name,
       winner: win,
       players: win ? R.players.map(p=>({name:p.name,role:p.role,alive:p.alive})) : null,
       log: win ? R.log : null,
     });
+    // 霊媒師（人間）に結果を通知
+    const humanMedium = R.players.find(p=>!p.isCpu && p.alive && p.role==='MEDIUM');
+    if (humanMedium) {
+      emit({ type:'medium_reveal', target:executed, role:execP?.role });
+    }
   }
 
   // ── ユーティリティ ────────────────────────────────────
@@ -2181,6 +2315,7 @@ const P2PEngine = (() => {
       players: allPlayers.map((p,i)=>({...p, role:roles[i], alive:true})),
       day:0, phase:'role',
       wolfTarget:null, doctorTarget:null,
+      lastDoctorTarget:null, lastExecuted:null, lastExecutedRole:null,
       humanActionDone:{}, cpuNightDone:false,
       humanWolfChoice:null, resolveDone:false,
       discMsgs:[], discOrder:[], discIdx:0, discRound:1,
@@ -2229,19 +2364,34 @@ const P2PEngine = (() => {
     R.humanWolfChoice=null; R.resolveDone=false;
     const al = alive();
     broadcast({ type:'night_start', day:R.day });
+    // 霊媒師に処刑情報を送信（処刑があった場合）
+    if (R.lastExecuted) {
+      const mediums = al.filter(p=>!p.isCpu&&p.role==='MEDIUM');
+      mediums.forEach(m=>sendTo(m.name,{type:'medium_reveal',target:R.lastExecuted,role:R.lastExecutedRole}));
+    }
     // 各役職プレイヤーにアクション要求
     al.forEach(p => {
       if (p.isCpu) return;
       const others = al.filter(x=>x!==p);
-      if (p.role==='WEREWOLF') {
-        const wnames = al.filter(x=>x.role==='WEREWOLF').map(x=>x.name);
-        sendTo(p.name,{type:'action_needed',action:'wolf',targets:others.map(x=>({name:x.name})),wolf_names:wnames});
-      } else if (p.role==='SEER') {
-        sendTo(p.name,{type:'action_needed',action:'seer',targets:others.map(x=>({name:x.name}))});
-      } else if (p.role==='DOCTOR') {
-        sendTo(p.name,{type:'action_needed',action:'doctor',targets:al.map(x=>({name:x.name}))});
+      if (R.day === 1) {
+        // 初日: 占い師のみ行動可能
+        if (p.role==='SEER') {
+          sendTo(p.name,{type:'action_needed',action:'seer',targets:others.map(x=>({name:x.name}))});
+        } else {
+          R.humanActionDone[p.name] = true;
+        }
       } else {
-        R.humanActionDone[p.name] = true;
+        if (p.role==='WEREWOLF') {
+          const wnames = al.filter(x=>x.role==='WEREWOLF').map(x=>x.name);
+          sendTo(p.name,{type:'action_needed',action:'wolf',targets:others.filter(x=>x.role!=='WEREWOLF').map(x=>({name:x.name})),wolf_names:wnames});
+        } else if (p.role==='SEER') {
+          sendTo(p.name,{type:'action_needed',action:'seer',targets:others.map(x=>({name:x.name}))});
+        } else if (p.role==='DOCTOR') {
+          const docTargets = al.filter(x=>x.name!==R.lastDoctorTarget);
+          sendTo(p.name,{type:'action_needed',action:'doctor',targets:docTargets.map(x=>({name:x.name})),last_protected:R.lastDoctorTarget});
+        } else {
+          R.humanActionDone[p.name] = true;
+        }
       }
     });
     later(1600, () => {
@@ -2252,17 +2402,23 @@ const P2PEngine = (() => {
 
   function doCpuNight() {
     const al = alive();
-    const cpuWolves = al.filter(p=>p.isCpu&&p.role==='WEREWOLF');
-    const vill = al.filter(p=>p.role!=='WEREWOLF');
-    if (cpuWolves.length && vill.length) R.wolfTarget=(topAcc(vill)||rand(vill)).name;
+    // 占い師CPU（毎夜）
     const cpuSeer = al.find(p=>p.isCpu&&p.role==='SEER');
     if (cpuSeer) {
       const unk = al.filter(p=>p!==cpuSeer&&R.seerKnown[p.name]===undefined);
       const t = unk.length?rand(unk):rand(al.filter(p=>p!==cpuSeer));
       if (t) R.seerKnown[t.name]=(t.role==='WEREWOLF');
     }
+    if (R.day === 1) return; // 初日は人狼・騎士行動なし
+    const cpuWolves = al.filter(p=>p.isCpu&&p.role==='WEREWOLF');
+    const vill = al.filter(p=>p.role!=='WEREWOLF');
+    if (cpuWolves.length && vill.length) R.wolfTarget=(topAcc(vill)||rand(vill)).name;
     const cpuDoc = al.find(p=>p.isCpu&&p.role==='DOCTOR');
-    if (cpuDoc) { const t=rand(al); if(t) R.doctorTarget=t.name; }
+    if (cpuDoc) {
+      const cands = (vill.length?vill:al).filter(p=>p.name!==R.lastDoctorTarget);
+      const t = rand(cands.length?cands:(vill.length?vill:al));
+      if (t) R.doctorTarget=t.name;
+    }
   }
 
   function handleNightAction(pname, data) {
@@ -2296,9 +2452,24 @@ const P2PEngine = (() => {
     if (R.resolveDone) return; R.resolveDone=true;
     const wt=R.humanWolfChoice||R.wolfTarget;
     const dt=R.doctorTarget;
+    // 騎士護衛対象を次夜用に記録（連続護衛禁止）
+    R.lastDoctorTarget=dt;
+    R.wolfTarget=null; R.doctorTarget=null; R.humanWolfChoice=null;
     let victim=null;
-    if (wt&&wt!==dt) { const v=byName(wt); if(v){v.alive=false;victim=v;R.log.push(`第${R.day}夜:${wt}が人狼に倒された`);} }
-    else if (wt&&wt===dt) R.log.push(`第${R.day}夜:騎士が${wt}を護衛した`);
+    if (R.day > 1) { // 初日は人狼行動なし
+      if (wt&&wt!==dt) {
+        const v=byName(wt);
+        if(v&&v.alive){
+          v.alive=false; victim=v;
+          R.log.push(`第${R.day}夜:${wt}が人狼に倒された`);
+          // 猫又ルール
+          if (v.role==='NEKOMATA') {
+            const wolves=alive().filter(x=>x.role==='WEREWOLF');
+            if(wolves.length){const dragged=rand(wolves);dragged.alive=false;R.log.push(`第${R.day}夜:猫又道連れで${dragged.name}も倒れた`);}
+          }
+        }
+      } else if (wt&&wt===dt) R.log.push(`第${R.day}夜:騎士が${wt}を護衛した`);
+    }
     const win=checkWinP2P();
     if (win) { doGameOver(win,victim); return; }
     later(400,()=>startDiscuss(victim));
@@ -2445,13 +2616,25 @@ const P2PEngine = (() => {
     const execP=byName(executed);
     if (execP) execP.alive=false;
     R.log.push(`第${R.day}日:${executed}が処刑された`);
+    // 霊媒師用に処刑情報を保存
+    R.lastExecuted=executed; R.lastExecutedRole=execP?.role;
+    // 猫又ルール: 処刑時にランダムな生存者を道連れ
+    let nekomataVictim=null;
+    if (execP?.role==='NEKOMATA') {
+      const bystanders=alive();
+      if(bystanders.length){nekomataVictim=rand(bystanders);nekomataVictim.alive=false;R.log.push(`第${R.day}日:猫又道連れで${nekomataVictim.name}も倒れた`);}
+    }
     const win=checkWinP2P();
     broadcast({
       type:'vote_result', executed, executed_role:execP?.role, tally,
+      nekomata_victim:nekomataVictim?.name,
       winner:win,
       players:win?R.players.map(p=>({name:p.name,role:p.role,alive:p.alive})):null,
       log:win?R.log:null,
     });
+    // 霊媒師（生存人間）に個別通知
+    const mediums=alive().filter(p=>!p.isCpu&&p.role==='MEDIUM');
+    mediums.forEach(m=>sendTo(m.name,{type:'medium_reveal',target:executed,role:execP?.role}));
   }
 
   function checkWinP2P() {
@@ -2579,6 +2762,8 @@ function initOnline() {
     voteReadyNames: [], voteReadyAll: false,
     // 人狼夜選択（ステルス）
     _wolfNightSel: null,
+    // 霊媒師
+    mediumReveal: null,
     // P2P固有
     p2pSub: 'choose', soloTotal: 5,
   };
@@ -2714,16 +2899,27 @@ function handleServer(data) {
       O.voteResult = null; O.phase = 'vote'; break;
     case 'vote_progress':
       O.voteDone = data.done; O.voteTotal = data.total; break;
+    case 'medium_reveal':
+      // 霊媒師のみに届く: 処刑された人の役職を記録
+      O.mediumReveal = { target: data.target, role: data.role };
+      break;
     case 'vote_result':
-      O.voteResult = {executed: data.executed, role: data.executed_role, tally: data.tally};
+      O.voteResult = {executed: data.executed, role: data.executed_role, tally: data.tally, nekomataVictim: data.nekomata_victim};
       O.winner = data.winner;
       if (data.players) { O.finalPlayers = data.players; O.log = data.log || []; }
-      // 処刑された人を死亡リストへ（役職確定）
+      // 処刑された人を死亡リストへ（役職は内部保持のみ、表示はしない）
       if (data.executed) {
         const av = getAvatar(data.executed, O.players);
         if (!O.deadPlayers.find(d=>d.name===data.executed))
           O.deadPlayers.push({ name:data.executed, role:data.executed_role, avatar:av, day:O.day, cause:'処刑' });
         delete O.roleClaims[data.executed];
+      }
+      // 猫又の道連れを死亡リストへ
+      if (data.nekomata_victim) {
+        const av2 = getAvatar(data.nekomata_victim, O.players);
+        if (!O.deadPlayers.find(d=>d.name===data.nekomata_victim))
+          O.deadPlayers.push({ name:data.nekomata_victim, role:null, avatar:av2, day:O.day, cause:'猫又' });
+        if (O.alive) O.alive = O.alive.filter(p=>p.name!==data.nekomata_victim);
       }
       O.phase = 'vote_result'; break;
     case 'game_over':
@@ -2895,15 +3091,14 @@ function renderODiscuss() {
       </summary>
       <div class="death-list" style="margin-top:.3rem;">
         ${O.deadPlayers.map(d => {
-          const info = d.role ? (ROLES[d.role] || {}) : null;
           const causeIsWolf = d.cause === '人狼';
+          const causeIsNeko = d.cause === '猫又';
+          const causeLabel = causeIsWolf ? '🐺 人狼に' : causeIsNeko ? '🐱 猫又に' : '⚖️ 処刑で';
           return `<div class="death-entry">
             <span class="de-avatar">${d.avatar.emoji}</span>
             <span class="de-name">${esc(d.name)}</span>
-            <span class="de-role" style="color:${info ? info.color||'#666' : '#475569'};">
-              ${info ? `${info.icon||'?'} ${info.name||d.role}` : '❓ 役職不明'}
-            </span>
-            <span style="font-size:.7rem;color:#475569;">${causeIsWolf ? '🐺 人狼に' : '⚖️ 処刑で'}死亡</span>
+            <span class="de-role" style="color:#475569;">❓ 役職不明</span>
+            <span style="font-size:.7rem;color:#475569;">${causeLabel}死亡</span>
           </div>`;
         }).join('')}
       </div>
@@ -3150,6 +3345,17 @@ function renderONight() {
             ${isWolf ? '🚨 この情報を活かして村を守れ！' : '✨ この人物は村人チームです'}
           </p>
         </div>`;
+    } else if (O.mediumReveal && O.myRole === 'MEDIUM') {
+      const mInfo = ROLES[O.mediumReveal.role] || {};
+      const mIsWolf = O.mediumReveal.role==='WEREWOLF'||O.mediumReveal.role==='MADMAN';
+      const mC = mIsWolf?'#ef4444':'#22c55e';
+      extra = `<div class="card-colored" style="text-align:center;border:2px solid ${mC};background:${mC}18;">
+        <h3 style="color:#a78bfa;margin-bottom:.4rem;">👁️ 霊視結果</h3>
+        <h2 style="color:#fff;margin:.3rem 0;">${esc(O.mediumReveal.target)}</h2>
+        <div style="font-size:2rem;margin:.2rem 0;">${mInfo.icon||'?'}</div>
+        <p style="color:${mC};font-size:1.3rem;font-weight:800;margin:.2rem 0;">${mInfo.name||O.mediumReveal.role}</p>
+        <p style="color:#64748b;font-size:.78rem;margin:0;">${mIsWolf?'🚨 人狼チームでした！':'✅ 村人チームでした'}</p>
+      </div>`;
     } else if (O.wolfChosen) {
       extra = `<div class="card" style="text-align:center; border:1px solid #ef444444;">
         <p style="color:#ef4444; font-size:.85rem;">🐺 今夜の標的</p>
@@ -3158,7 +3364,7 @@ function renderONight() {
       </div>`;
     }
     return `
-      ${ph('🌙',`第 ${O.day} 夜`,O.seerResult?'占い結果が出ました':'村が眠りにつきました…','#60a5fa')}
+      ${ph('🌙',`第 ${O.day} 夜`,O.seerResult?'占い結果が出ました':O.mediumReveal&&O.myRole==='MEDIUM'?'霊視結果':'村が眠りにつきました…','#60a5fa')}
       <div style="text-align:center; padding:1.2rem; background:rgba(99,102,241,.07); border-radius:14px; border:1px solid rgba(99,102,241,.2);">
         <div style="font-size:2.5rem; margin-bottom:.5rem;">🌑</div>
         <p style="color:#94a3b8; font-size:.9rem;">
@@ -3180,16 +3386,22 @@ function renderONight() {
       <label>占う相手</label>${tsel}
       <button class="btn btn-primary" id="oNightSend" data-action="seer" style="margin-top:.6rem;">✨　占う</button>
     </div>`;
-  if (action === 'doctor') return `
-    ${ph('🌙',`第 ${O.day} 夜`,'あなたは騎士です','#34d399')}
-    <div style="background:rgba(52,211,153,.07); border:1px solid #34d39933; border-radius:14px; padding:1.2rem; margin:.5rem 0;">
-      <p style="color:#94a3b8; font-size:.83rem; line-height:1.7;">💊 今夜、あなたは1人を人狼の襲撃から守ります。<br>誰が狙われているか見極め、命を救いましょう。</p>
-    </div>
-    <div class="card">
-      <h3 style="color:#34d399; margin-bottom:.7rem;">💊 誰を護衛しますか？</h3>
-      <label>守る相手</label>${tsel}
-      <button class="btn btn-primary" id="oNightSend" data-action="doctor" style="margin-top:.6rem;">🛡️　護衛する</button>
-    </div>`;
+  if (action === 'doctor') {
+    const lastNote = an.last_protected
+      ? `<p style="color:#64748b;font-size:.78rem;margin:.1rem 0 .5rem;">※ ${esc(an.last_protected)} は昨夜守ったため今夜は選べません</p>`
+      : '';
+    return `
+      ${ph('🌙',`第 ${O.day} 夜`,'あなたは騎士です','#34d399')}
+      <div style="background:rgba(52,211,153,.07); border:1px solid #34d39933; border-radius:14px; padding:1.2rem; margin:.5rem 0;">
+        <p style="color:#94a3b8; font-size:.83rem; line-height:1.7;">💊 今夜、あなたは1人を人狼の襲撃から守ります。<br>誰が狙われているか見極め、命を救いましょう。</p>
+      </div>
+      <div class="card">
+        <h3 style="color:#34d399; margin-bottom:.4rem;">💊 誰を護衛しますか？</h3>
+        ${lastNote}
+        <label>守る相手</label>${tsel}
+        <button class="btn btn-primary" id="oNightSend" data-action="doctor" style="margin-top:.6rem;">🛡️　護衛する</button>
+      </div>`;
+  }
   if (action === 'wolf') {
     // ── ステルスUI: 周囲からは普通の「夜チェック」画面に見える ──
     const sel = O._wolfNightSel || '';
@@ -3219,7 +3431,7 @@ function renderODay() {
         <p style="color:#ef4444;font-size:.8rem;font-weight:700;letter-spacing:.1em;margin:0 0 .4rem;">💀 昨夜の犠牲者</p>
         <div style="font-size:3rem;margin:.3rem 0;">💀</div>
         <h2 style="color:#fff;margin:.3rem 0;font-size:1.8rem;">${esc(elim.name)}</h2>
-        <p style="color:#64748b;font-size:.85rem;margin:0;">役職は不明…（処刑されると役職が判明します）</p>
+        <p style="color:#64748b;font-size:.85rem;margin:0;">役職は不明…（ゲーム終了時に全員分公開されます）</p>
       </div>`
     : `<div class="card-colored" style="text-align:center; border:1px solid #22c55e; background:#22c55e18;">
         <h3 style="color:#4ade80; margin:0;">✨ 昨夜は誰も犠牲になりませんでした！</h3>
@@ -3251,14 +3463,12 @@ function renderOVote() {
       </summary>
       <div class="death-list" style="margin-top:.3rem;">
         ${O.deadPlayers.map(d => {
-          const info = d.role ? (ROLES[d.role] || {}) : null;
+          const causeLabel = d.cause==='人狼'?'🐺':d.cause==='猫又'?'🐱':'⚖️';
           return `<div class="death-entry">
             <span class="de-avatar">${d.avatar.emoji}</span>
             <span class="de-name">${esc(d.name)}</span>
-            <span class="de-role" style="color:${info ? info.color||'#666' : '#475569'};">
-              ${info ? `${info.icon||'?'} ${info.name||d.role}` : '❓ 役職不明'}
-            </span>
-            <span style="font-size:.7rem;color:#475569;">${d.cause==='人狼'?'🐺':'⚖️'}</span>
+            <span class="de-role" style="color:#475569;">❓ 役職不明</span>
+            <span style="font-size:.7rem;color:#475569;">${causeLabel}</span>
           </div>`;
         }).join('')}
       </div>
@@ -3314,38 +3524,31 @@ function renderOVote() {
 function renderOVoteResult() {
   const r = O.voteResult;
   if (!r) return '';
-  const info = ROLES[r.role] || {};
   const total = Object.values(r.tally).reduce((a,b)=>a+b,0);
   const bars = Object.entries(r.tally).sort(([,a],[,b])=>b-a).map(([n,c]) => {
     const pct = Math.round(c/total*16);
     const bar = '█'.repeat(pct)+'░'.repeat(16-pct);
     return `<div class="vote-bar ${n===r.executed?'executed':''}">${esc(n)}：${bar} ${c}票</div>`;
   }).join('');
-  const isWolf = r.role === 'WEREWOLF';
-  const isMadman = r.role === 'MADMAN';
-  const resultMsg = isWolf
-    ? '🎉 人狼を倒しました！村人チームの大きな一歩！'
-    : isMadman
-    ? '😅 狂人でした…人狼チームの仲間でした！'
-    : '😢 村人が処刑されました…人狼はまだ潜んでいる';
-  const resultColor = isWolf ? '#4ade80' : isMadman ? '#fbbf24' : '#f87171';
   const nextBtn = O.winner
     ? `<button class="btn btn-primary" id="oGoGameOver">🏆　ゲーム結果を見る</button>`
     : (O.isHost ? `<button class="btn btn-night" id="oNextNight">🌙　夜に進む（ホスト）</button>`
                 : `<div class="card" style="text-align:center;"><p style="color:#64748b; font-size:0.85rem;">ホストが次のフェーズへ進めます…</p></div>`);
+  const nekHtml = r.nekomataVictim
+    ? `<div style="margin-top:.8rem;padding:.6rem;background:rgba(251,146,60,.1);border:1px solid #fb923c44;border-radius:10px;color:#fb923c;font-size:.82rem;text-align:center;">
+        🐱 猫又の道連れ: <strong>${esc(r.nekomataVictim)}</strong> も巻き込まれました！
+       </div>` : '';
   return `
     ${ph('⚖️',`第${O.day}日 処刑結果`,'村人会議の結論が出ました','#f87171')}
     <div class="card"><p class="sec-label" style="margin-top:0;">📊 得票数</p>${bars}</div>
     <div class="vote-drama" style="text-align:center; padding:1.5rem; border-radius:16px;
          border:2px solid #ef4444; background:linear-gradient(135deg,#1a0505,#2d0a0a); margin:.6rem 0;">
       <p style="color:#f87171; font-size:.78rem; font-weight:700; letter-spacing:.12em; margin:0 0 .5rem;">⚖️ 処刑決定</p>
-      <div style="font-size:3rem; line-height:1; margin:.4rem 0;">${info.icon||'💀'}</div>
+      <div style="font-size:3rem; line-height:1; margin:.4rem 0;">⚖️</div>
       <div style="font-size:2rem; font-weight:900; color:#fff; margin:.4rem 0;">${esc(r.executed)}</div>
-      <div style="font-size:1rem; color:#94a3b8; margin-bottom:.8rem;">${info.name||r.role}</div>
-      <div style="border-top:1px solid rgba(255,255,255,.1); padding-top:.8rem; color:${resultColor}; font-size:.88rem; font-weight:700;">
-        ${resultMsg}
-      </div>
+      <div style="font-size:.88rem; color:#64748b; margin-bottom:.8rem;">役職は…ゲーム終了時に公開</div>
     </div>
+    ${nekHtml}
     ${nextBtn}
   `;
 }
