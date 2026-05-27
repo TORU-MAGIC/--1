@@ -388,19 +388,22 @@ function unlockAudio() {
       ctx.resume && ctx.resume();
     }
   } catch(e) {}
-  // iOS Safari: 全曲ぶんの Audio 要素をこのジェスチャー内で play() → 直後 pause()
-  // これで後から setTimeout 内でも play() が通るようになる
-  SONGS.forEach(song => {
+  // iOS Safari: 1曲ずつ順番にプライミング（全曲同時 play はiOS音声セッション干渉で2重再生になるため禁止）
+  let _primeIdx = 0;
+  function primeNext() {
+    if (_primeIdx >= SONGS.length) return;
+    const song = SONGS[_primeIdx++];
     try {
       const a = new Audio(song);
-      a.muted = true;   // ← volume=0 ではなく muted=true でiOSハードウェア音声出力を完全遮断
-      a.volume = 0.55;  // ← 後で使うときの音量を事前セット
+      a.muted = true;   // ハードウェア音声出力を完全遮断（unmute はプール取得時）
+      a.volume = 0.55;
       const p = a.play();
-      const ready = () => { a.pause(); a.muted = false; a.currentTime = 0; _primedPool[song] = a; };
-      if (p && typeof p.then === 'function') { p.then(ready).catch(() => {}); }
-      else { ready(); }
-    } catch(e) {}
-  });
+      const done = () => { a.pause(); a.currentTime = 0; _primedPool[song] = a; primeNext(); };
+      if (p && typeof p.then === 'function') { p.then(done).catch(primeNext); }
+      else { done(); }
+    } catch(e) { primeNext(); }
+  }
+  primeNext();
 }
 
 // プールから取り出す（なければ新規作成）
@@ -408,7 +411,7 @@ function _getAudio(src) {
   if (_primedPool[src]) {
     const a = _primedPool[src];
     delete _primedPool[src];
-    try { a.currentTime = 0; a.volume = 0.55; } catch(e) {}
+    try { a.muted = false; a.currentTime = 0; a.volume = 0.55; } catch(e) {} // プール取得時に muted 解除
     return a;
   }
   return new Audio(src);
@@ -506,7 +509,7 @@ function fadeOutMusic(duration=1500, onDone=null) {
 const ROLES = {
   WEREWOLF: { name: '人狼',   icon: '🐺', team: 'wolf',    color: '#ef4444', desc: '夜に村人を1人襲います。村人チームを全滅させれば人狼チームの勝利！' },
   VILLAGER: { name: '村人',   icon: '👤', team: 'village', color: '#22c55e', desc: '特殊な能力はありませんが、昼の議論と投票で人狼を見つけましょう。' },
-  SEER:     { name: '占い師', icon: '🔮', team: 'village', color: '#818cf8', desc: '夜に1人を選んで人狼かどうかを占えます。情報を上手く使いましょう。初日のみ行動可能。' },
+  SEER:     { name: '占い師', icon: '🔮', team: 'village', color: '#818cf8', desc: '夜に1人を選んで人狼かどうかを占えます。毎夜行動でき、情報を上手く活かしましょう。' },
   DOCTOR:   { name: '騎士',   icon: '💊', team: 'village', color: '#34d399', desc: '夜に1人を選んで人狼の攻撃から守れます。同じ人を連続で守ることはできません。' },
   MADMAN:   { name: '狂人',   icon: '🃏', team: 'wolf',    color: '#f59e0b', desc: '人狼の仲間ですが人狼の行動は知りません。人狼チームの勝利を目指します。' },
   MEDIUM:   { name: '霊媒師', icon: '👁️', team: 'village', color: '#a78bfa', desc: '処刑された人の役職を夜に知ることができます。その情報を活かして村を守れ！' },
@@ -595,16 +598,14 @@ function nightSteps() {
     const mediums = aliveByRole('MEDIUM');
     if (mediums.length) steps.push({type:'medium', actor: mediums[0]});
   }
-  // 占い師（初日含め毎夜）
+  // 占い師（毎夜）
   const seers = aliveByRole('SEER');
   if (seers.length) steps.push({type:'seer', actor: seers[0]});
-  // 騎士・人狼は初日は行動しない
-  if (S.day > 1) {
-    const docs = aliveByRole('DOCTOR');
-    if (docs.length) steps.push({type:'doctor', actor: docs[0]});
-    const wolves = aliveByRole('WEREWOLF');
-    if (wolves.length) steps.push({type:'wolf', actors: wolves});
-  }
+  // 騎士・人狼（初日から行動可能）
+  const docs = aliveByRole('DOCTOR');
+  if (docs.length) steps.push({type:'doctor', actor: docs[0]});
+  const wolves = aliveByRole('WEREWOLF');
+  if (wolves.length) steps.push({type:'wolf', actors: wolves});
   return steps;
 }
 
@@ -1038,10 +1039,7 @@ function bindEvents() {
     // 騎士護衛対象を記録（次夜の連続護衛禁止チェック用）
     if (dt) S.lastDoctorTarget = dt;
 
-    if (S.day === 1) {
-      // 初日: 人狼行動なし → 死者なし
-      S.elimLastNight = null;
-    } else if (wt && wt !== dt) {
+    if (wt && wt !== dt) {
       const victim = S.players.find(p => p.name === wt);
       if (victim) {
         victim.alive = false;
@@ -1504,26 +1502,18 @@ const SoloEngine = (() => {
 
     if (human.alive) {
       const others = al.filter(p=>p!==human);
-      // 初日は占い師のみ行動可能
-      if (R.day === 1) {
-        if (human.role==='SEER') {
-          emit({ type:'action_needed', action:'seer', targets:others.map(p=>({name:p.name})) });
-        } else {
-          R.humanNightDone = true;
-        }
+      // 初日から全役職が行動可能
+      if (human.role==='WEREWOLF') {
+        const wolfNames = al.filter(p=>p.role==='WEREWOLF').map(p=>p.name);
+        emit({ type:'action_needed', action:'wolf', targets:others.filter(p=>p.role!=='WEREWOLF').map(p=>({name:p.name})), wolf_names:wolfNames });
+      } else if (human.role==='SEER') {
+        emit({ type:'action_needed', action:'seer', targets:others.map(p=>({name:p.name})) });
+      } else if (human.role==='DOCTOR') {
+        // 前夜に守った人は選択肢から除外（連続護衛禁止）
+        const docTargets = al.filter(p=>p.name!==R.lastDoctorTarget);
+        emit({ type:'action_needed', action:'doctor', targets:docTargets.map(p=>({name:p.name})), last_protected:R.lastDoctorTarget });
       } else {
-        if (human.role==='WEREWOLF') {
-          const wolfNames = al.filter(p=>p.role==='WEREWOLF').map(p=>p.name);
-          emit({ type:'action_needed', action:'wolf', targets:others.filter(p=>p.role!=='WEREWOLF').map(p=>({name:p.name})), wolf_names:wolfNames });
-        } else if (human.role==='SEER') {
-          emit({ type:'action_needed', action:'seer', targets:others.map(p=>({name:p.name})) });
-        } else if (human.role==='DOCTOR') {
-          // 前夜に守った人は選択肢から除外（連続護衛禁止）
-          const docTargets = al.filter(p=>p.name!==R.lastDoctorTarget);
-          emit({ type:'action_needed', action:'doctor', targets:docTargets.map(p=>({name:p.name})), last_protected:R.lastDoctorTarget });
-        } else {
-          R.humanNightDone = true;
-        }
+        R.humanNightDone = true;
       }
     } else {
       R.humanNightDone = true;
@@ -1538,14 +1528,14 @@ const SoloEngine = (() => {
 
   function doCpuNight() {
     const al = alive();
-    // 初日は占い師CPUのみ行動
+    // 占い師CPU（毎夜）
     const cpuSeer = al.find(p=>p.isCpu && p.role==='SEER');
     if (cpuSeer) {
       const unknowns = al.filter(p=>p!==cpuSeer && R.seerKnown[p.name]===undefined);
       const tgt = unknowns.length ? rand(unknowns) : rand(al.filter(p=>p!==cpuSeer));
       if (tgt) R.seerKnown[tgt.name] = (tgt.role==='WEREWOLF');
     }
-    if (R.day === 1) return; // 初日は騎士・人狼行動なし
+    // 人狼・騎士CPU（初日から行動可能）
     // 人狼CPUの標的
     const cpuWolves = al.filter(p=>p.isCpu && p.role==='WEREWOLF');
     const vill = al.filter(p=>p.role!=='WEREWOLF');
@@ -1571,8 +1561,7 @@ const SoloEngine = (() => {
     R.wolfTarget = null; R.doctorTarget = null; R.humanWolfChoice = null;
 
     let victim = null;
-    if (R.day > 1 && wt && alive().some(p=>p.role==='WEREWOLF')) {
-      // 初日は人狼行動なし
+    if (wt && alive().some(p=>p.role==='WEREWOLF')) {
       if (dt === wt) {
         R.log.push(`第${R.day}夜: 騎士が守り、誰も死ななかった`);
       } else {
@@ -2384,25 +2373,17 @@ const P2PEngine = (() => {
     al.forEach(p => {
       if (p.isCpu) return;
       const others = al.filter(x=>x!==p);
-      if (R.day === 1) {
-        // 初日: 占い師のみ行動可能
-        if (p.role==='SEER') {
-          sendTo(p.name,{type:'action_needed',action:'seer',targets:others.map(x=>({name:x.name}))});
-        } else {
-          R.humanActionDone[p.name] = true;
-        }
+      // 初日から全役職が行動可能
+      if (p.role==='WEREWOLF') {
+        const wnames = al.filter(x=>x.role==='WEREWOLF').map(x=>x.name);
+        sendTo(p.name,{type:'action_needed',action:'wolf',targets:others.filter(x=>x.role!=='WEREWOLF').map(x=>({name:x.name})),wolf_names:wnames});
+      } else if (p.role==='SEER') {
+        sendTo(p.name,{type:'action_needed',action:'seer',targets:others.map(x=>({name:x.name}))});
+      } else if (p.role==='DOCTOR') {
+        const docTargets = al.filter(x=>x.name!==R.lastDoctorTarget);
+        sendTo(p.name,{type:'action_needed',action:'doctor',targets:docTargets.map(x=>({name:x.name})),last_protected:R.lastDoctorTarget});
       } else {
-        if (p.role==='WEREWOLF') {
-          const wnames = al.filter(x=>x.role==='WEREWOLF').map(x=>x.name);
-          sendTo(p.name,{type:'action_needed',action:'wolf',targets:others.filter(x=>x.role!=='WEREWOLF').map(x=>({name:x.name})),wolf_names:wnames});
-        } else if (p.role==='SEER') {
-          sendTo(p.name,{type:'action_needed',action:'seer',targets:others.map(x=>({name:x.name}))});
-        } else if (p.role==='DOCTOR') {
-          const docTargets = al.filter(x=>x.name!==R.lastDoctorTarget);
-          sendTo(p.name,{type:'action_needed',action:'doctor',targets:docTargets.map(x=>({name:x.name})),last_protected:R.lastDoctorTarget});
-        } else {
-          R.humanActionDone[p.name] = true;
-        }
+        R.humanActionDone[p.name] = true;
       }
     });
     later(1600, () => {
@@ -2420,7 +2401,7 @@ const P2PEngine = (() => {
       const t = unk.length?rand(unk):rand(al.filter(p=>p!==cpuSeer));
       if (t) R.seerKnown[t.name]=(t.role==='WEREWOLF');
     }
-    if (R.day === 1) return; // 初日は人狼・騎士行動なし
+    // 人狼・騎士CPU（初日から行動可能）
     const cpuWolves = al.filter(p=>p.isCpu&&p.role==='WEREWOLF');
     const vill = al.filter(p=>p.role!=='WEREWOLF');
     if (cpuWolves.length && vill.length) R.wolfTarget=(topAcc(vill)||rand(vill)).name;
@@ -2467,8 +2448,7 @@ const P2PEngine = (() => {
     R.lastDoctorTarget=dt;
     R.wolfTarget=null; R.doctorTarget=null; R.humanWolfChoice=null;
     let victim=null;
-    if (R.day > 1) { // 初日は人狼行動なし
-      if (wt&&wt!==dt) {
+    if (wt&&wt!==dt) {
         const v=byName(wt);
         if(v&&v.alive){
           v.alive=false; victim=v;
@@ -2479,8 +2459,7 @@ const P2PEngine = (() => {
             if(wolves.length){const dragged=rand(wolves);dragged.alive=false;R.log.push(`第${R.day}夜:猫又道連れで${dragged.name}も倒れた`);}
           }
         }
-      } else if (wt&&wt===dt) R.log.push(`第${R.day}夜:騎士が${wt}を護衛した`);
-    }
+    } else if (wt&&wt===dt) R.log.push(`第${R.day}夜:騎士が${wt}を護衛した`);
     const win=checkWinP2P();
     if (win) { doGameOver(win,victim); return; }
     later(400,()=>startDiscuss(victim));
