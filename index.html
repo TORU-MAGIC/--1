@@ -365,7 +365,7 @@ function getAvatar(name, players) {
 }
 
 // ========== AUDIO SYSTEM ==========
-const SONGS = ['人狼ゲーム1.mp3','人狼ゲーム2.mp3','人狼ゲーム3.mp3','人狼ゲーム4.mp3','人狼ゲーム5.mp3','人狼ゲーム6.mp3'];
+const SONGS = ['人狼ゲーム1.mp3','人狼ゲーム2.mp3','人狼ゲーム3.mp3','人狼ゲーム4.mp3','人狼ゲーム5.mp3','人狼ゲーム6.mp3','オオカミの夜１.mp3','オオカミの夜２.mp3','嘘と満月１.mp3','嘘と満月２.mp3','牙を向け.mp3','牙を向け２.mp3','月下の投票１','月下の投票２.mp3'];
 let bgmAudio = null;
 let _usedSongs = [];
 let _audioUnlocked = false;
@@ -526,11 +526,16 @@ const CONFIGS = {
   10: ['WEREWOLF','WEREWOLF','WEREWOLF','SEER','DOCTOR','MEDIUM','MADMAN','VILLAGER','VILLAGER','VILLAGER'],
   11: ['WEREWOLF','WEREWOLF','WEREWOLF','SEER','DOCTOR','MEDIUM','NEKOMATA','MADMAN','VILLAGER','VILLAGER','VILLAGER'],
   12: ['WEREWOLF','WEREWOLF','WEREWOLF','WEREWOLF','SEER','DOCTOR','MEDIUM','NEKOMATA','MADMAN','VILLAGER','VILLAGER','VILLAGER'],
+  13: ['WEREWOLF','WEREWOLF','WEREWOLF','WEREWOLF','SEER','DOCTOR','MEDIUM','NEKOMATA','MADMAN','VILLAGER','VILLAGER','VILLAGER','VILLAGER'],
+  14: ['WEREWOLF','WEREWOLF','WEREWOLF','WEREWOLF','SEER','DOCTOR','MEDIUM','NEKOMATA','MADMAN','VILLAGER','VILLAGER','VILLAGER','VILLAGER','VILLAGER'],
+  15: ['WEREWOLF','WEREWOLF','WEREWOLF','WEREWOLF','WEREWOLF','SEER','DOCTOR','MEDIUM','NEKOMATA','MADMAN','VILLAGER','VILLAGER','VILLAGER','VILLAGER','VILLAGER'],
 };
 
 // ========== CPU PERSONALITIES ==========
-// quick_co:積極的CO型  secretive:慎重型  aggressive:攻撃的型  wolf_smart:人狼思考型  balanced:バランス型
-const CPU_PERSONALITIES = ['quick_co','secretive','aggressive','wolf_smart','balanced','balanced','balanced'];
+// logical:論理派・整理型  aggressive:攻撃的・先導型  cautious:慎重派・後追い  talkative:饒舌・印象論
+// quiet:寡黙・必要時のみ発言  bluffer:騙り屋・大胆  follower:同調派・多数派  analytical:分析派・矛盾指摘
+// 配分: 各性格を1個以上＋followerを多めに（同調しやすい性格をベースに）
+const CPU_PERSONALITIES = ['logical','aggressive','cautious','talkative','quiet','bluffer','follower','analytical','follower','logical','analytical'];
 
 // ========== STATE ==========
 let S = {};
@@ -539,7 +544,7 @@ function initState() {
   S = {
     phase: 'setup',          // setup | role_reveal | night | day | vote | vote_result | game_over
     playerCount: 6,
-    playerNames: Array.from({length:12}, (_,i) => `プレイヤー${i+1}`),
+    playerNames: Array.from({length:15}, (_,i) => `プレイヤー${i+1}`),
     players: [],             // [{name, role, alive}]
     day: 0,
     // role reveal
@@ -960,7 +965,7 @@ function saveNames() {
 function bindEvents() {
   // SETUP
   on('dec', () => { if (S.playerCount > 4) { saveNames(); S.playerCount--; render(); } });
-  on('inc', () => { if (S.playerCount < 12) { saveNames(); S.playerCount++; render(); } });
+  on('inc', () => { if (S.playerCount < 15) { saveNames(); S.playerCount++; render(); } });
   on('start', () => {
     saveNames();
     const names = S.playerNames.slice(0, S.playerCount).map(n => n.trim());
@@ -1191,7 +1196,10 @@ function bindEvents() {
     }
   });
   on('oCpuInc', () => {
-    if ((O.cpuCount||0) < 9) {
+    // P2Pは人間プレイヤー含めた合計15まで。Onlineは単体CPU上限14
+    const humans = (O.players||[]).length;
+    const maxCpu = mode==='p2p' ? Math.max(0, 15 - humans) : 14;
+    if ((O.cpuCount||0) < maxCpu) {
       O.cpuCount++;
       if (mode==='p2p') { render(); } else wsSend({type:'set_cpu_count',count:O.cpuCount});
       render();
@@ -1200,7 +1208,7 @@ function bindEvents() {
 
   // SOLO SETUP
   on('soloDec',   () => { if ((O.soloTotal||5) > 4) { O.soloTotal--; render(); } });
-  on('soloInc',   () => { if ((O.soloTotal||5) < 12) { O.soloTotal++; render(); } });
+  on('soloInc',   () => { if ((O.soloTotal||5) < 15) { O.soloTotal++; render(); } });
   on('soloStart', () => {
     const name = (val('soloName')||'').trim() || 'あなた';
     O.playerName = name;
@@ -1416,7 +1424,7 @@ function bindEvents() {
 
 // ========== SOLO ENGINE (サーバー不要 / GitHub Pages 対応) ==========
 const SoloEngine = (() => {
-  const CPU_NAMES = ['ハル','ユキ','アオイ','カイ','リン','ソラ','ナギ','ツバキ','コウ','アン'];
+  const CPU_NAMES = ['ハル','ユキ','アオイ','カイ','リン','ソラ','ナギ','ツバキ','コウ','アン','ミオ','レン','サキ','ジン','ノア'];
   let R = {};
 
   function emit(msg)        { setTimeout(() => handleServer(msg), 0); }
@@ -1429,7 +1437,7 @@ const SoloEngine = (() => {
 
   // ── 初期化 ────────────────────────────────────────────
   function init(humanName, total) {
-    total = Math.max(4, Math.min(12, total));
+    total = Math.max(4, Math.min(15, total));
     const cpuPool = shuffle(CPU_NAMES.filter(n=>n!==humanName));
     const players = [{ name: humanName, isCpu: false, alive: true, role: '' }];
     for (let i=1; i<total; i++)
@@ -1450,6 +1458,7 @@ const SoloEngine = (() => {
       votes: {}, humanVoted: false, tallyDone: false, resolveDone: false,
       accuCount: {}, seerKnown: {}, log: [],
     };
+    BRAIN.initR(R); // BRAIN メモリ初期化
 
     const human = players[0];
     const wolves = players.filter(p=>p.role==='WEREWOLF');
@@ -1468,18 +1477,19 @@ const SoloEngine = (() => {
   // ── 人狼チャット ──────────────────────────────────────
   function startWolfChat() {
     R.phase = 'wolf_chat';
+    BRAIN.initR(R);
     const wolves = alive().filter(p=>p.role==='WEREWOLF');
     emit({ type: 'wolf_chat_start', wolf_names: wolves.map(p=>p.name) });
 
     const cpuWolves = wolves.filter(p=>p.isCpu);
     const vill = alive().filter(p=>p.role!=='WEREWOLF');
     if (cpuWolves.length && vill.length) {
-      const tgt = topAcc(vill) || rand(vill);
+      const tgt = BRAIN.wolfNightTarget(R) || topAcc(vill) || rand(vill);
       let t = 1000;
-      cpuWolves.forEach(w => {
+      cpuWolves.forEach((w, idx) => {
         later(t, () => emit({ type:'wolf_chat_msg', name:w.name,
-          text: tplFill(rand(TPL.wolf_night.slice(0,3)), tgt.name) }));
-        t += 1300;
+          text: tplFill(rand(TPL.wolf_night), tgt.name) }));
+        t += 1300 + Math.floor(Math.random()*600);
       });
     }
   }
@@ -1527,26 +1537,49 @@ const SoloEngine = (() => {
   }
 
   function doCpuNight() {
+    BRAIN.initR(R);
     const al = alive();
-    // 占い師CPU（毎夜）
+    // 占い師CPU（毎夜）: 既に黒を出してない、かばわれてない（怪しい）人を優先
     const cpuSeer = al.find(p=>p.isCpu && p.role==='SEER');
     if (cpuSeer) {
       const unknowns = al.filter(p=>p!==cpuSeer && R.seerKnown[p.name]===undefined);
-      const tgt = unknowns.length ? rand(unknowns) : rand(al.filter(p=>p!==cpuSeer));
+      // 疑われ度の高い未占い者を優先
+      let tgt = null;
+      if (unknowns.length) {
+        let best=-1, b=null;
+        unknowns.forEach(p=>{ const s=(R.suspicion?.[p.name]||0); if(s>best){best=s;b=p;} });
+        tgt = b || rand(unknowns);
+      } else {
+        tgt = rand(al.filter(p=>p!==cpuSeer));
+      }
       if (tgt) R.seerKnown[tgt.name] = (tgt.role==='WEREWOLF');
     }
-    // 人狼・騎士CPU（初日から行動可能）
-    // 人狼CPUの標的
+    // 人狼CPU標的（BRAIN による戦略的選択）
     const cpuWolves = al.filter(p=>p.isCpu && p.role==='WEREWOLF');
     const vill = al.filter(p=>p.role!=='WEREWOLF');
     if (cpuWolves.length && vill.length) {
-      R.wolfTarget = (topAcc(vill) || rand(vill)).name;
+      const target = BRAIN.wolfNightTarget(R) || topAcc(vill) || rand(vill);
+      if (target) R.wolfTarget = target.name;
     }
-    // 騎士CPU（連続護衛禁止）
+    // 騎士CPU: CO占い師がいれば優先的に守る。なければ最も疑われていない=信頼度高い人
     const cpuDoc = al.find(p=>p.isCpu && p.role==='DOCTOR');
     if (cpuDoc) {
-      const docCandidates = (vill.length ? vill : al).filter(p=>p.name!==R.lastDoctorTarget);
-      const tgt = rand(docCandidates.length ? docCandidates : (vill.length ? vill : al));
+      const baseCandidates = (vill.length ? vill : al).filter(p=>p.name!==R.lastDoctorTarget && p.name!==cpuDoc.name);
+      let tgt = null;
+      // 1) 真の占い師COを守る
+      const trueSeerCO = (R.seerCOs||[]).find(c=>{ const p=R.players.find(x=>x.name===c.name); return p && p.alive && p.role==='SEER'; });
+      if (trueSeerCO) tgt = baseCandidates.find(p=>p.name===trueSeerCO.name);
+      // 2) 真の霊媒師
+      if (!tgt) {
+        const trueMedCO = (R.mediumCOs||[]).find(c=>{ const p=R.players.find(x=>x.name===c.name); return p && p.alive && p.role==='MEDIUM'; });
+        if (trueMedCO) tgt = baseCandidates.find(p=>p.name===trueMedCO.name);
+      }
+      // 3) なければかばわれ度が高い（信頼されてそう＝狙われやすい）人
+      if (!tgt && baseCandidates.length) {
+        let best=-Infinity, b=null;
+        baseCandidates.forEach(p=>{ const sc=(R.coverCount?.[p.name]||0)-(R.suspicion?.[p.name]||0)*0.5; if(sc>best){best=sc;b=p;} });
+        tgt = b || rand(baseCandidates);
+      }
       if (tgt) R.doctorTarget = tgt.name;
     }
   }
@@ -1658,7 +1691,8 @@ const SoloEngine = (() => {
       const delay = sp.personality==='aggressive' ? rInt(1200,2500) : rInt(1800,3800);
       later(delay, () => {
         if (R.phase !== 'discuss') return;
-        const text = cpuTpl(sp);
+        const text = BRAIN.speak(R, sp);
+        BRAIN.parseClaim(R, spName, text); // 自分の発言から claims を登録
         R.discMsgs.push({ name:spName, text });
         emit({ type:'disc_message', name:spName, text });
         R.discIdx++;
@@ -1676,7 +1710,7 @@ const SoloEngine = (() => {
     const cpus = al.filter(p=>p.isCpu);
     cpus.forEach((cpu, i) => {
       later(1500 + i*1200, () => {
-        const tgt = cpuVoteTarget(cpu);
+        const tgt = BRAIN.vote(R, cpu);
         if (tgt) R.votes[cpu.name] = tgt.name;
         const done = Object.keys(R.votes).length + (R.humanVoted?1:0);
         emit({ type:'vote_progress', done, total:al.length });
@@ -1685,17 +1719,6 @@ const SoloEngine = (() => {
       });
     });
     if (!cpus.length) { /* only human, wait for vote */ }
-  }
-
-  function cpuVoteTarget(cpu) {
-    const al = alive();
-    const others = al.filter(p=>p.name!==cpu.name);
-    if (!others.length) return null;
-    if (cpu.role==='WEREWOLF' || cpu.role==='MADMAN') {
-      const vill = others.filter(p=>p.role!=='WEREWOLF');
-      return vill.length ? (topAcc(vill)||rand(vill)) : rand(others);
-    }
-    return topAcc(others) || rand(others);
   }
 
   function tallyVotes() {
@@ -1869,10 +1892,8 @@ const SoloEngine = (() => {
       case 'disc_message': {
         if (R.phase !== 'discuss') break;
         const human = R.players[0];
-        alive().forEach(p=>{
-          if (p.name!==human.name && data.text.includes(p.name))
-            R.accuCount[p.name] = (R.accuCount[p.name]||0)+1;
-        });
+        // BRAIN によるクレーム＆疑い解析（人間発言から CO・かばう・疑うを学習）
+        BRAIN.parseClaim(R, human.name, data.text);
         R.discMsgs.push({ name:human.name, text:data.text });
         emit({ type:'disc_message', name:human.name, text:data.text });
         // 自分の順番のときだけ進める（フリー入力はターン外でも発言可）
@@ -2035,9 +2056,736 @@ const TPL = {
     'これ以上引き延ばすのは人狼に有利です 🐺',
     '決断してください！村の命がかかっています 🏚️',
   ],
+  // ── カミングアウト系（情報あり） ──
+  co_seer_wolf: [
+    '占い師としてCOします。{n}さんを占って黒でした 🔮🐺',
+    '占い師COします。{n}さんは人狼です、信じてください 🔮',
+    '私が占い師です。昨夜の結果、{n}さんは黒判定 🖤',
+    'COします。占い師です。{n}さんに黒を出しました ⚡',
+    '占い結果を公開します。{n}さんは人狼で確定です 🔮🔴',
+  ],
+  co_seer_safe: [
+    '占い師COします。{n}さんは白でした、信頼してください 🔮✨',
+    '占い師として名乗ります。{n}さんを占って白判定 🔮',
+    '私が占い師です。{n}さんは村人陣営です ✨',
+    'COします。占い師です。{n}さんは白確定です 🔮💙',
+  ],
+  // ── カミングアウト系（情報なし／初日） ──
+  co_seer_blank: [
+    '占い師としてCOします 🔮',
+    '私が占い師です、信じてください 🔮',
+    '占い師COします。これから情報を集めます 🔮',
+    '占い師として名乗り出ます。皆で人狼を炙り出しましょう 🔮',
+  ],
+  // ── 騎士CO ──
+  co_doctor: [
+    '騎士COします、護衛中です 💊',
+    '私が騎士です。占い師を守らせてください 💊',
+    '騎士COします。誰か護衛したい人を教えてください 💊',
+    '騎士です、安心してください。仕事はしています 💊',
+  ],
+  // ── 霊媒師CO ──
+  co_medium: [
+    '霊媒師としてCOします 👁️',
+    '霊媒師COします。霊視で確認します 👁️',
+    '私が霊媒師です。処刑された人の役職が分かります 👁️',
+  ],
+  // 霊媒結果
+  medium_result_wolf: [
+    '霊媒結果：{n}さんは人狼でした、処刑成功！ 👁🐺',
+    '霊媒師として報告します。{n}さんは黒でした 👁🖤',
+    '昨日処刑した{n}さん、霊視結果は人狼でした 👁⚡',
+  ],
+  medium_result_safe: [
+    '霊媒結果：{n}さんは白（村人陣営）でした… 👁💔',
+    '霊媒師として報告。{n}さんは人狼ではありませんでした 👁',
+    '残念、{n}さんは白判定です。誤処刑でした 👁⚖',
+  ],
+  // ── かばう系（特定人物を白だと思う） ──
+  cover: [
+    '{n}さんは人狼ではないと思います、発言が筋通ってます 🛡',
+    '{n}さんを疑うのは違うと思う、村人っぽいです 🤝',
+    '{n}さんはむしろ信頼できる方かと 🌟',
+    '{n}さんは怪しくないです、視点が村目線 ✨',
+    '{n}さんを処刑するのは反対です、もったいない 🛑',
+    '{n}さんが人狼なら逆にここまで自然に話せないはず 👀',
+    '{n}さんは白だと思います、ロジックが噛み合ってる 💡',
+    '{n}さんはむしろ吊りたくないですね 🛡✨',
+  ],
+  // ── 反対意見・違うと思う系 ──
+  disagree: [
+    'それはちょっと違うと思います 🤔',
+    'いやいや、それは飛躍しすぎでは？ ⚡',
+    'うーん、その推理は無理がある気がします ❓',
+    'その見立てには同意できません ✋',
+    'ちょっと待って、論理が雑すぎませんか？ 🛑',
+    '私はそう思いません、別の視点もあります 🔁',
+    '違うと思います、根拠が弱いです 📋',
+    'それを言うなら他の人の方が怪しい 👀',
+  ],
+  // ── 同調・支持 ──
+  support: [
+    '{n}さんの意見、私も同感です 👍',
+    '{n}さんの分析、的を射ています ✨',
+    '{n}さんが言う通りかもしれません 🤝',
+    '{n}さんに賛成、その方向で進めましょう 🙌',
+  ],
+  // ── 投票宣言 ──
+  vote_decl: [
+    '私は{n}さんに投票します 🗳',
+    '今日は{n}さんに票を入れる予定です ✊',
+    '{n}さんへ投票で決めます、変える理由がない 🗳',
+    '{n}さんが一番怪しい、私は投票します 🗳⚡',
+  ],
+  // ── 理由付きで疑う（雰囲気推理） ──
+  reason_silent: [
+    '{n}さん、ずっと黙ってませんか？それが怪しい 🤫',
+    '{n}さんの発言少なすぎ、隠してる感ある 👤',
+    '{n}さんが今日まだ意見を出してない。情報出してほしい 🙏',
+  ],
+  reason_pivot: [
+    '{n}さんさっきと言ってること違いません？ 🔄',
+    '{n}さんの主張、コロコロ変わってますね ⚠',
+    '{n}さん発言ブレてる、何か隠してる？ 👀',
+  ],
+  reason_defensive: [
+    '{n}さん、否定ばかりで自分の推理は？ 🛡⚠',
+    '{n}さん、防御の発言ばかり気になります ❓',
+    '{n}さん必死に守ってるの誰ですか？怪しい 👀',
+  ],
+  // ── 騙りCO疑い（カウンターCO予告） ──
+  counter_co: [
+    '占い師が複数出てる、片方は人狼の騙りです 🐺🔮',
+    '{n}さんの占いCO怪しい、騙りでは？ ⚠',
+    '霊媒結果と矛盾します、{n}さんは偽物では？ 🛑',
+    '占い師COが嘘なら処刑して暴きましょう ⚡',
+  ],
+  // ── 質問・情報集め ──
+  ask_co: [
+    '占い師さん、そろそろCOしませんか？情報ください 🔮',
+    '騎士さんは誰を守ってますか？（直接は無理ですが…）💊',
+    '霊媒師さん、結果を教えてほしいです 👁️',
+    '役職持ちの方、進行のため動いてほしいです 🙏',
+  ],
+  // ── 占い対象指定（村人視点） ──
+  ask_seer: [
+    '占い師さん、次は{n}さんを占ってほしいです 🔮',
+    '{n}さんを占い対象にしてくれませんか 🔮👀',
+  ],
 };
 
 function tplFill(text, name) { return text.replace(/\{n\}/g, name); }
+
+// ========== CPU BRAIN（上級者思考の中央モジュール） ==========
+// SoloEngine／P2PEngine 両方の R を扱う（R.players, R.day, R.discRound, R.seerKnown など共通フィールドを使う）
+const BRAIN = (function(){
+  function rand(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+  function alive(R){ return R.players.filter(p=>p.alive); }
+  function others(R, p){ return alive(R).filter(x=>x.name!==p.name); }
+  function topAcc(R, pls){ let m=0,b=null; pls.forEach(p=>{const c=R.suspicion?.[p.name]||0;if(c>m){m=c;b=p;}}); return b; }
+  function topAccLow(R, pls){ // 疑われていない順
+    let m=Infinity,b=null; pls.forEach(p=>{const c=R.suspicion?.[p.name]||0;if(c<m){m=c;b=p;}}); return b;
+  }
+
+  // ── R 初期化（メモリ追加） ─────────────────────────────
+  function initR(R){
+    if (!R.suspicion) R.suspicion = {};
+    if (!R.claims) R.claims = {};            // {name: 'SEER'|'DOCTOR'|'MEDIUM'} (本人CO履歴)
+    if (!R.seerCOs) R.seerCOs = [];          // [{name, day, target?, isWolf?}]
+    if (!R.mediumCOs) R.mediumCOs = [];      // [{name, day, target?, role?}]
+    if (!R.docCOs) R.docCOs = [];
+    if (!R.coverCount) R.coverCount = {};    // {name: 何回かばわれたか}
+    if (!R.lastSpoke) R.lastSpoke = {};      // {name: 直近の発言タイプ}
+    if (!R.speakCount) R.speakCount = {};    // {name: 発言数}
+    if (!R.discThisRound) R.discThisRound = new Set();
+    if (!R.wolfFakeSeerPlan) R.wolfFakeSeerPlan = null; // 人狼チームの騙り計画 {fakerName, fakeTarget}
+    if (!R.voteHistory) R.voteHistory = [];  // [{day, votes:{voter:target}}]
+    // 旧 accuCount との互換: suspicion を主用に
+    if (!R.accuCount) R.accuCount = R.suspicion;
+  }
+
+  function bumpSuspicion(R, name, w=1){
+    if (!name) return;
+    R.suspicion[name] = (R.suspicion[name]||0) + w;
+    R.accuCount[name] = R.suspicion[name]; // alias 互換
+  }
+  function bumpCover(R, name, w=1){
+    if (!name) return;
+    R.coverCount[name] = (R.coverCount[name]||0) + w;
+    R.suspicion[name] = Math.max(0, (R.suspicion[name]||0) - w*0.6);
+    R.accuCount[name] = R.suspicion[name];
+  }
+
+  // ── 発言からCO・結果を抽出（メッセージ解析） ───────────
+  function parseClaim(R, name, text){
+    if (!text) return;
+    const hasNegateWolf = /(人狼|黒)\s*(?:ではない|じゃない|では無|じゃ無)/.test(text)
+                       || /人狼じゃ(ない|なさそう)/.test(text);
+
+    // 占い師CO検出
+    if (/占い師(として)?CO|占い師として(名乗|宣言|出ます)|私(が|は)占い師|占い師として名乗り出ます/.test(text)) {
+      if (!R.claims[name]) R.claims[name] = 'SEER';
+      if (!R.seerCOs.find(c=>c.name===name)) R.seerCOs.push({name, day:R.day, results:[]});
+    }
+    // 騎士CO
+    if (/騎士(として)?CO|私(が|は)騎士|護衛(してます|中)/.test(text)) {
+      if (!R.claims[name]) R.claims[name] = 'DOCTOR';
+      if (!R.docCOs.find(c=>c.name===name)) R.docCOs.push({name, day:R.day});
+    }
+    // 霊媒師CO
+    if (/霊媒師?(として)?CO|私(が|は)霊媒|霊視|霊媒結果|霊媒師として(名乗|報告)/.test(text)) {
+      if (!R.claims[name]) R.claims[name] = 'MEDIUM';
+      if (!R.mediumCOs.find(c=>c.name===name)) R.mediumCOs.push({name, day:R.day, results:[]});
+    }
+
+    // 占い結果は CO 済 or 「占い」キーワード含むときだけ解析（否定文除外）
+    const isSeerContext = R.claims[name]==='SEER' || /占い/.test(text);
+    if (isSeerContext && !hasNegateWolf) {
+      // 黒判定: 「○○さんは人狼」「○○さんに黒」「○○さんを占って黒」など
+      const wolfM = text.match(/([^\s、。を]+?)さん(?:は|を|に|へ).{0,8}?(人狼(?:でした|です|だった)?|黒(?:でした|判定|です)?)/);
+      if (wolfM) {
+        const tgt = wolfM[1];
+        const co = R.seerCOs.find(c=>c.name===name);
+        if (co && !co.results.find(r=>r.target===tgt && r.day===R.day)) {
+          co.results.push({day:R.day, target:tgt, isWolf:true});
+        }
+        bumpSuspicion(R, tgt, 3);
+      } else {
+        // 白判定: 「○○さんは白でした」「○○さんは村人陣営」など
+        const safeM = text.match(/([^\s、。を]+?)さん(?:は|を|に|へ).{0,8}?(白(?:でした|です|判定)|村人陣営|村人でした|安全(?:でした|です)?|信頼(?:できます)?)/);
+        if (safeM) {
+          const tgt = safeM[1];
+          const co = R.seerCOs.find(c=>c.name===name);
+          if (co && !co.results.find(r=>r.target===tgt && r.day===R.day)) {
+            co.results.push({day:R.day, target:tgt, isWolf:false});
+          }
+          bumpCover(R, tgt, 1.5);
+        }
+      }
+    }
+
+    // 霊媒結果
+    if (R.claims[name]==='MEDIUM' && !hasNegateWolf) {
+      const wolfM = text.match(/([^\s、。を]+?)さん.{0,8}?(人狼(?:でした|です)|黒(?:でした|判定)?)/);
+      if (wolfM) {
+        const tgt = wolfM[1];
+        const co = R.mediumCOs.find(c=>c.name===name);
+        if (co && !co.results.find(r=>r.target===tgt)) co.results.push({day:R.day, target:tgt, role:'WEREWOLF'});
+      }
+    }
+
+    // かばう系の検出
+    const coverM = text.match(/([^\s、。を]+?)さん(?:は|を).{0,12}?(人狼(?:ではない|じゃない)|怪しくない|信頼でき|白だと思|処刑(?:するの)?は反対|吊りたくない|村人っぽい|村目線|無実|疑う(?:のは|べきじゃ)|疑ってない)/);
+    if (coverM) bumpCover(R, coverM[1], 1);
+
+    // 疑う発言（否定文・かばう文は除外）
+    if (!hasNegateWolf && !coverM) {
+      alive(R).forEach(p=>{
+        if (p.name===name) return;
+        if (text.includes(p.name) && /怪しい|疑|黒|人狼|投票|処刑|吊|矛盾|嘘|騙|不自然|沈黙|発言少な/.test(text)) {
+          bumpSuspicion(R, p.name, 1);
+        }
+      });
+    }
+    R.speakCount[name] = (R.speakCount[name]||0)+1;
+  }
+
+  // ── 人狼チームの「騙り占い師」計画を立てる ─────────────
+  function planWolfFakeSeer(R){
+    if (R.wolfFakeSeerPlan) return;
+    const wolves = alive(R).filter(p=>p.role==='WEREWOLF' && p.isCpu);
+    if (!wolves.length) return;
+    // 大規模戦（10人以上）ならパーソナリティ問わず騙りを行う確率上昇
+    const total = R.players.length;
+    const tryProb = total >= 10 ? 0.85 : total >= 7 ? 0.55 : 0.30;
+    if (Math.random() > tryProb) return;
+    // 騙り役は bluffer か aggressive がベスト
+    const faker = wolves.find(w=>w.personality==='bluffer') || wolves.find(w=>w.personality==='aggressive') || rand(wolves);
+    // 偽占い対象は村人寄りの一人
+    const vill = alive(R).filter(p=>p.role!=='WEREWOLF' && p.name!==faker.name);
+    if (!vill.length) return;
+    const fakeTarget = rand(vill);
+    R.wolfFakeSeerPlan = { fakerName: faker.name, fakeTarget: fakeTarget.name };
+  }
+
+  // ── 発言生成（メイン） ─────────────────────────────────
+  function speak(R, cpu){
+    initR(R);
+    const pers = cpu.personality || 'logical';
+    const day = R.day;
+    const round = R.discRound || 1;
+    const acc = R.suspicion[cpu.name]||0;
+    const wasAcc = acc > 0;
+    const ot = others(R, cpu);
+    const al = alive(R);
+
+    // 寡黙キャラはたまに沈黙風（中立寄り）
+    if (pers==='quiet' && Math.random()<0.45) return rand(TPL.neutral);
+
+    // ── 人狼・狂人ロジック ──
+    if (cpu.role==='WEREWOLF' || cpu.role==='MADMAN') {
+      return speakWolfSide(R, cpu, pers, round, wasAcc, ot);
+    }
+    // ── 占い師ロジック ──
+    if (cpu.role==='SEER') {
+      return speakSeer(R, cpu, pers, day, round, wasAcc, ot);
+    }
+    // ── 霊媒師ロジック ──
+    if (cpu.role==='MEDIUM') {
+      return speakMedium(R, cpu, pers, day, round, wasAcc, ot);
+    }
+    // ── 騎士ロジック ──
+    if (cpu.role==='DOCTOR') {
+      return speakDoctor(R, cpu, pers, day, round, wasAcc, ot);
+    }
+    // ── 猫又ロジック ──
+    if (cpu.role==='NEKOMATA') {
+      return speakNekomata(R, cpu, pers, day, round, wasAcc, ot);
+    }
+    // ── 村人ロジック ──
+    return speakVillager(R, cpu, pers, day, round, wasAcc, ot);
+  }
+
+  // === 人狼／狂人 ===
+  function speakWolfSide(R, cpu, pers, round, wasAcc, ot){
+    const isMad = cpu.role==='MADMAN';
+    const myTeam = isMad ? [cpu.name] : alive(R).filter(p=>p.role==='WEREWOLF').map(p=>p.name);
+    const vill = ot.filter(p=>!myTeam.includes(p.name));
+
+    // 1) 自分が疑われていたら、まず防御＋他者誘導
+    if (wasAcc && Math.random()<0.7) {
+      if (vill.length && Math.random()<0.5) {
+        // 反撃: 別の村人を疑う方向に誘導
+        const tgt = topAccLow(R, vill) || rand(vill);
+        bumpSuspicion(R, tgt.name, 1);
+        return tplFill(rand(TPL.accuse), tgt.name);
+      }
+      return rand(TPL.defend);
+    }
+
+    // 2) 騙り占い師として動く？
+    planWolfFakeSeer(R);
+    if (R.wolfFakeSeerPlan && R.wolfFakeSeerPlan.fakerName===cpu.name) {
+      // 既に占い師COしているか？
+      if (!R.claims[cpu.name]) {
+        R.claims[cpu.name] = 'SEER';
+        R.seerCOs.push({name:cpu.name, day:R.day, results:[]});
+        // 初日CO: 結果なし。2日目以降: 偽の黒判定を真の村人に当てる
+        if (R.day <= 1) return rand(TPL.co_seer_blank);
+        const fakeTgt = R.wolfFakeSeerPlan.fakeTarget;
+        const co = R.seerCOs.find(c=>c.name===cpu.name);
+        if (co) co.results.push({day:R.day, target:fakeTgt, isWolf:true});
+        bumpSuspicion(R, fakeTgt, 3);
+        return tplFill(rand(TPL.co_seer_wolf), fakeTgt);
+      }
+      // 既にCO済 → 続きの偽結果や同調
+      if (R.day >= 2 && Math.random()<0.45) {
+        const fakeTgt = R.wolfFakeSeerPlan.fakeTarget;
+        return tplFill(rand(TPL.co_seer_wolf), fakeTgt);
+      }
+    }
+
+    // 3) 仲間の人狼が疑われていたらかばう
+    const teamMates = alive(R).filter(p=>!isMad && p.role==='WEREWOLF' && p.name!==cpu.name);
+    const threatenedMate = teamMates.find(m=>(R.suspicion[m.name]||0) >= 2);
+    if (threatenedMate && Math.random()<0.55) {
+      bumpCover(R, threatenedMate.name, 1);
+      return tplFill(rand(TPL.cover), threatenedMate.name);
+    }
+
+    // 4) 真の占い師COが出ていたら反論（カウンターCO疑い）
+    const trueSeers = R.seerCOs.filter(c=>{
+      const p = R.players.find(x=>x.name===c.name);
+      return p && p.alive && p.role==='SEER';
+    });
+    if (trueSeers.length && Math.random()<0.35) {
+      const target = trueSeers[0].name;
+      bumpSuspicion(R, target, 2);
+      return tplFill(rand(TPL.counter_co.concat([`${target}さんの占い、信用できない 🚨`])), target);
+    }
+
+    // 5) 一般的に村人を疑う（巧妙に）
+    if (vill.length) {
+      const aggrProb = pers==='aggressive' ? 0.78 : pers==='bluffer' ? 0.65 : 0.55;
+      if (Math.random() < aggrProb) {
+        // 既に疑われている人にさらに疑いを乗せる（自然な多数派形成）
+        const tgt = topAcc(R, vill) || rand(vill);
+        bumpSuspicion(R, tgt.name, 1);
+        // 理由付き
+        const flavor = Math.random();
+        if (flavor<0.25) return tplFill(rand(TPL.reason_silent), tgt.name);
+        if (flavor<0.5)  return tplFill(rand(TPL.reason_pivot), tgt.name);
+        if (flavor<0.7)  return tplFill(rand(TPL.vote_decl), tgt.name);
+        return tplFill(rand(TPL.accuse), tgt.name);
+      }
+    }
+
+    // 6) たまに白の村人をかばって誠実そうに見せる
+    if (vill.length && Math.random()<0.20) {
+      const tgt = topAccLow(R, vill);
+      if (tgt) { bumpCover(R, tgt.name, 1); return tplFill(rand(TPL.cover), tgt.name); }
+    }
+
+    return rand([...TPL.neutral, ...TPL.question]);
+  }
+
+  // === 占い師 ===
+  function speakSeer(R, cpu, pers, day, round, wasAcc, ot){
+    // 偽占い師（人狼側）が既にCOしているか？
+    const fakeSeerExists = R.seerCOs.some(c=>{
+      const p = R.players.find(x=>x.name===c.name);
+      return p && p.alive && p.role!=='SEER';
+    });
+
+    // 既に自分でCO済か
+    const alreadyCO = R.claims[cpu.name]==='SEER';
+
+    // CO戦略
+    const totalPlayers = R.players.length;
+    const shouldCO = (
+      fakeSeerExists ||                  // 騙り対抗COは即時
+      (R.seerKnown && Object.values(R.seerKnown).some(v=>v===true)) || // 黒を引いたら即時
+      (day >= 2) ||                       // 2日目以降は基本CO
+      (pers==='aggressive' && round===1) || // 攻撃型は初日CO
+      (totalPlayers >= 10 && day >= 1)     // 大規模戦は初日CO推奨
+    );
+
+    if (shouldCO && !alreadyCO) {
+      R.claims[cpu.name] = 'SEER';
+      if (!R.seerCOs.find(c=>c.name===cpu.name)) R.seerCOs.push({name:cpu.name, day, results:[]});
+      // 結果がある場合
+      const known = Object.entries(R.seerKnown||{});
+      const wolfHit = known.find(([n,iw])=>iw===true);
+      if (wolfHit) {
+        const co = R.seerCOs.find(c=>c.name===cpu.name);
+        if (co) co.results.push({day, target:wolfHit[0], isWolf:true});
+        bumpSuspicion(R, wolfHit[0], 4);
+        return tplFill(rand(TPL.co_seer_wolf), wolfHit[0]);
+      }
+      const safeHit = known.find(([n,iw])=>iw===false);
+      if (safeHit) {
+        const co = R.seerCOs.find(c=>c.name===cpu.name);
+        if (co) co.results.push({day, target:safeHit[0], isWolf:false});
+        bumpCover(R, safeHit[0], 2);
+        return tplFill(rand(TPL.co_seer_safe), safeHit[0]);
+      }
+      return rand(TPL.co_seer_blank);
+    }
+
+    // CO済の場合は時々追加情報を出す
+    if (alreadyCO) {
+      const known = Object.entries(R.seerKnown||{});
+      // まだ公開していない結果があれば公開
+      const myCO = R.seerCOs.find(c=>c.name===cpu.name);
+      const reportedTargets = new Set((myCO?.results||[]).map(r=>r.target));
+      const unreported = known.filter(([n])=>!reportedTargets.has(n));
+      if (unreported.length && Math.random()<0.6) {
+        const [tgt, iw] = rand(unreported);
+        if (myCO) myCO.results.push({day, target:tgt, isWolf:iw});
+        if (iw) { bumpSuspicion(R, tgt, 3); return tplFill(rand(TPL.co_seer_wolf), tgt); }
+        bumpCover(R, tgt, 1.5); return tplFill(rand(TPL.co_seer_safe), tgt);
+      }
+    }
+
+    // CO してない or 報告すべき情報がない → 普通の村人ロール
+    if (wasAcc) return rand(TPL.defend);
+    if (ot.length && Math.random()<0.35) {
+      const tgt = topAcc(R, ot) || rand(ot);
+      return tplFill(rand(TPL.accuse), tgt.name);
+    }
+    return rand([...TPL.neutral, ...TPL.ask_co]);
+  }
+
+  // === 霊媒師 ===
+  function speakMedium(R, cpu, pers, day, round, wasAcc, ot){
+    const alreadyCO = R.claims[cpu.name]==='MEDIUM';
+    // 偽霊媒対抗COで必要なら即CO
+    const fakeMediumExists = R.mediumCOs.some(c=>{
+      const p = R.players.find(x=>x.name===c.name);
+      return p && p.alive && p.role!=='MEDIUM';
+    });
+    // 処刑があってかつ霊媒結果を持っていたら CO推奨
+    const hasResult = R.lastExecuted && R.lastExecutedRole;
+    const shouldCO = fakeMediumExists || (hasResult && day>=2) || (pers==='aggressive' && hasResult);
+
+    if (shouldCO && !alreadyCO) {
+      R.claims[cpu.name] = 'MEDIUM';
+      R.mediumCOs.push({name:cpu.name, day, results:[]});
+      if (hasResult) {
+        const isWolf = R.lastExecutedRole==='WEREWOLF';
+        const co = R.mediumCOs.find(c=>c.name===cpu.name);
+        if (co) co.results.push({day, target:R.lastExecuted, role:R.lastExecutedRole});
+        if (isWolf) return tplFill(rand(TPL.medium_result_wolf), R.lastExecuted);
+        return tplFill(rand(TPL.medium_result_safe), R.lastExecuted);
+      }
+      return rand(TPL.co_medium);
+    }
+    // 通常は隠れる
+    if (wasAcc) return rand(TPL.defend);
+    if (ot.length && Math.random()<0.35) {
+      const tgt = topAcc(R, ot) || rand(ot);
+      return tplFill(rand(TPL.accuse), tgt.name);
+    }
+    return rand([...TPL.neutral, ...TPL.ask_co]);
+  }
+
+  // === 騎士 ===
+  function speakDoctor(R, cpu, pers, day, round, wasAcc, ot){
+    const alreadyCO = R.claims[cpu.name]==='DOCTOR';
+    // 騎士は基本隠れる。疑われたら防御COする。
+    if (wasAcc && (R.suspicion[cpu.name]||0) >= 2 && !alreadyCO && Math.random()<0.55) {
+      R.claims[cpu.name] = 'DOCTOR';
+      R.docCOs.push({name:cpu.name, day});
+      return rand(TPL.co_doctor);
+    }
+    if (pers==='aggressive' && day>=2 && !alreadyCO && Math.random()<0.20) {
+      R.claims[cpu.name] = 'DOCTOR';
+      R.docCOs.push({name:cpu.name, day});
+      return rand(TPL.co_doctor);
+    }
+    if (wasAcc) return rand(TPL.defend);
+    // 占い師をかばう（信頼している占い師が居れば）
+    const trueSeer = R.seerCOs.find(c=>{
+      const p = R.players.find(x=>x.name===c.name);
+      return p && p.alive && p.role==='SEER';
+    });
+    if (trueSeer && Math.random()<0.30) {
+      bumpCover(R, trueSeer.name, 1);
+      return tplFill(rand(TPL.cover), trueSeer.name);
+    }
+    if (ot.length && Math.random()<0.32) {
+      const tgt = topAcc(R, ot) || rand(ot);
+      return tplFill(rand(TPL.accuse), tgt.name);
+    }
+    return rand([...TPL.neutral, ...TPL.question]);
+  }
+
+  // === 猫又 ===
+  function speakNekomata(R, cpu, pers, day, round, wasAcc, ot){
+    // 普通の村人として振る舞う。終盤たまに脅し気味に。
+    if (wasAcc && day>=3 && Math.random()<0.35) {
+      return '私を処刑するなら覚悟しろ、道連れがいる 🐱⚡';
+    }
+    return speakVillager(R, cpu, pers, day, round, wasAcc, ot);
+  }
+
+  // === 村人 ===
+  function speakVillager(R, cpu, pers, day, round, wasAcc, ot){
+    if (wasAcc) {
+      if (Math.random()<0.65) return rand(TPL.defend);
+    }
+    // 直近の占い情報があれば、それに基づいて投票を呼びかけ
+    const trueSeers = R.seerCOs.filter(c=>{
+      const p = R.players.find(x=>x.name===c.name);
+      return p && p.alive;
+    });
+    if (trueSeers.length && Math.random()<0.30) {
+      // 黒判定された人がいればそれに投票宣言
+      const co = trueSeers[0];
+      const blackResult = (co.results||[]).find(r=>r.isWolf);
+      if (blackResult) {
+        bumpSuspicion(R, blackResult.target, 2);
+        return tplFill(rand(TPL.vote_decl), blackResult.target);
+      }
+    }
+    // パーソナリティ別ロジック
+    if (pers==='analytical' && Math.random()<0.45) {
+      // 矛盾・パターン指摘
+      const tgt = topAcc(R, ot);
+      if (tgt) {
+        const flavor = Math.random();
+        if (flavor<0.4) return tplFill(rand(TPL.reason_pivot), tgt.name);
+        if (flavor<0.7) return tplFill(rand(TPL.reason_silent), tgt.name);
+        return tplFill(rand(TPL.reason_defensive), tgt.name);
+      }
+    }
+    if (pers==='follower' && Math.random()<0.55) {
+      // 多数派に同調
+      const tgt = topAcc(R, ot);
+      if (tgt) {
+        if (Math.random()<0.5) return tplFill(rand(TPL.agree), tgt.name);
+        return tplFill(rand(TPL.support), tgt.name);
+      }
+    }
+    if (pers==='cautious') {
+      // 慎重派: かばう寄り
+      if (Math.random()<0.40) {
+        const safest = topAccLow(R, ot);
+        if (safest) { bumpCover(R, safest.name, 1); return tplFill(rand(TPL.cover), safest.name); }
+      }
+      if (Math.random()<0.30) return rand(TPL.disagree);
+      return rand([...TPL.neutral, ...TPL.question]);
+    }
+    if (pers==='aggressive') {
+      const tgt = topAcc(R, ot) || rand(ot);
+      if (tgt) { bumpSuspicion(R, tgt.name, 1); return tplFill(rand(TPL.accuse), tgt.name); }
+      return rand(TPL.pressure);
+    }
+    if (pers==='talkative') {
+      // よく喋る: いろんなテンプレを混ぜる
+      const pool = [...TPL.neutral, ...TPL.question, ...TPL.ask_co];
+      if (ot.length && Math.random()<0.45) {
+        const tgt = topAcc(R, ot) || rand(ot);
+        bumpSuspicion(R, tgt.name, 0.5);
+        return tplFill(rand(TPL.accuse), tgt.name);
+      }
+      return rand(pool);
+    }
+    if (pers==='quiet') {
+      return rand(TPL.neutral);
+    }
+    if (pers==='bluffer' && day===1 && round===1 && Math.random()<0.18) {
+      // bluffer の村人はまれに占い師騙り（村人騙りは普通NGだが多様性のため）
+      // → やめておく。村人騙りは混乱を招くだけなので
+    }
+    // logical: バランス型・推理重視
+    if (ot.length && Math.random()<0.45) {
+      const tgt = topAcc(R, ot) || rand(ot);
+      bumpSuspicion(R, tgt.name, 1);
+      const flavor = Math.random();
+      if (flavor<0.3) return tplFill(rand(TPL.reason_silent), tgt.name);
+      if (flavor<0.55) return tplFill(rand(TPL.reason_pivot), tgt.name);
+      if (flavor<0.75) return tplFill(rand(TPL.accuse), tgt.name);
+      return tplFill(rand(TPL.vote_decl), tgt.name);
+    }
+    if (Math.random()<0.25) return rand(TPL.disagree);
+    return rand([...TPL.neutral, ...TPL.question, ...TPL.ask_co]);
+  }
+
+  // ── 投票決定（上級者ロジック） ─────────────────────────
+  function vote(R, cpu){
+    initR(R);
+    const al = alive(R);
+    const ot = al.filter(p=>p.name!==cpu.name);
+    if (!ot.length) return null;
+
+    const isWolfTeam = (cpu.role==='WEREWOLF'||cpu.role==='MADMAN');
+
+    if (isWolfTeam) {
+      // 人狼陣営: 仲間に投票しない
+      const wolves = al.filter(p=>p.role==='WEREWOLF');
+      const wolfNames = new Set(wolves.map(p=>p.name));
+      const vill = ot.filter(p=>!wolfNames.has(p.name));
+      // 真の占い師（COしてる）を優先的に処刑
+      const trueSeer = R.seerCOs.find(c=>{
+        const p = R.players.find(x=>x.name===c.name);
+        return p && p.alive && p.role==='SEER';
+      });
+      if (trueSeer && vill.find(p=>p.name===trueSeer.name) && Math.random()<0.85) {
+        return vill.find(p=>p.name===trueSeer.name);
+      }
+      // 真の霊媒師を処刑
+      const trueMedium = R.mediumCOs.find(c=>{
+        const p = R.players.find(x=>x.name===c.name);
+        return p && p.alive && p.role==='MEDIUM';
+      });
+      if (trueMedium && vill.find(p=>p.name===trueMedium.name) && Math.random()<0.7) {
+        return vill.find(p=>p.name===trueMedium.name);
+      }
+      // 騙り役の偽結果対象を吊って騙り信用を上げる
+      const plan = R.wolfFakeSeerPlan;
+      if (plan && vill.find(p=>p.name===plan.fakeTarget) && Math.random()<0.6) {
+        return vill.find(p=>p.name===plan.fakeTarget);
+      }
+      // それ以外は最も疑われている村人へ
+      return topAcc(R, vill) || rand(vill);
+    }
+
+    // ── 村人陣営 ──
+    // 1) 占い師の黒判定がある場合は最優先
+    const seerCOAlive = R.seerCOs.filter(c=>{
+      const p = R.players.find(x=>x.name===c.name);
+      return p && p.alive;
+    });
+    // 占い師が1人だけなら信用する
+    if (seerCOAlive.length===1) {
+      const co = seerCOAlive[0];
+      const blackResult = (co.results||[]).find(r=>r.isWolf);
+      if (blackResult) {
+        const tgt = ot.find(p=>p.name===blackResult.target);
+        if (tgt) return tgt;
+      }
+    }
+    // 占い師が複数（騙り合戦）→ より信頼度高い方を信じる
+    if (seerCOAlive.length >= 2) {
+      // 騎士COが守ってる方を信じる、霊媒結果と一致する方など... 簡易版: ランダムで信頼を選ぶ
+      // CPU自身が占い師なら自分を信じる
+      const ownCO = seerCOAlive.find(c=>c.name===cpu.name);
+      if (ownCO) {
+        const blk = (ownCO.results||[]).find(r=>r.isWolf);
+        if (blk) {
+          const t = ot.find(p=>p.name===blk.target);
+          if (t) return t;
+        }
+      }
+      // それ以外は対立してる占い師の片方を吊る（人狼騙りを潰す可能性が高い疑われてる方）
+      const candidates = seerCOAlive.map(c=>ot.find(p=>p.name===c.name)).filter(Boolean);
+      if (candidates.length) {
+        const tgt = topAcc(R, candidates) || rand(candidates);
+        if (tgt) return tgt;
+      }
+    }
+    // 2) 霊媒師の結果（前日処刑者が白だった場合は次日に占い対立してる人を吊る → 上記で対応）
+    // 3) 最も疑われている人へ投票
+    const susp = topAcc(R, ot);
+    if (susp && (R.suspicion[susp.name]||0) >= 1) return susp;
+    return rand(ot);
+  }
+
+  // ── 人狼の夜の襲撃対象（智略つき） ─────────────────────
+  function wolfNightTarget(R){
+    initR(R);
+    const al = alive(R);
+    const wolves = al.filter(p=>p.role==='WEREWOLF');
+    if (!wolves.length) return null;
+    const vill = al.filter(p=>p.role!=='WEREWOLF');
+    if (!vill.length) return null;
+
+    // 1) CO占い師（真物）優先
+    const trueSeer = R.seerCOs.find(c=>{
+      const p = R.players.find(x=>x.name===c.name);
+      return p && p.alive && p.role==='SEER';
+    });
+    if (trueSeer) {
+      const v = vill.find(p=>p.name===trueSeer.name);
+      if (v) return v;
+    }
+    // 2) 真の霊媒師
+    const trueMedium = R.mediumCOs.find(c=>{
+      const p = R.players.find(x=>x.name===c.name);
+      return p && p.alive && p.role==='MEDIUM';
+    });
+    if (trueMedium) {
+      const v = vill.find(p=>p.name===trueMedium.name);
+      if (v) return v;
+    }
+    // 3) 騎士COしている真物
+    const trueDoc = R.docCOs.find(c=>{
+      const p = R.players.find(x=>x.name===c.name);
+      return p && p.alive && p.role==='DOCTOR';
+    });
+    if (trueDoc) {
+      const v = vill.find(p=>p.name===trueDoc.name);
+      if (v && Math.random()<0.6) return v;
+    }
+    // 4) 一切COしてない村人で発言力ある人（疑い役の少ない＝信頼されてそうな村人）を狙う
+    const noClaim = vill.filter(p=>!R.claims[p.name]);
+    if (noClaim.length) {
+      // かばわれてる（信頼されてる）人を優先的に狩る
+      let best = null, bestScore = -Infinity;
+      noClaim.forEach(p=>{
+        const cover = R.coverCount[p.name]||0;
+        const susp = R.suspicion[p.name]||0;
+        const score = cover - susp*0.5;
+        if (score > bestScore) { bestScore = score; best = p; }
+      });
+      if (best) return best;
+    }
+    return rand(vill);
+  }
+
+  return { initR, parseClaim, speak, vote, wolfNightTarget, bumpSuspicion, bumpCover };
+})();
 
 // ========== OPENING STORY ==========
 const STORY_SEGMENTS = [
@@ -2154,7 +2902,7 @@ function spawnConfetti(color1, color2) {
 
 // ========== P2P ENGINE (PeerJS サーバーレスオンライン) ==========
 const P2PEngine = (() => {
-  const CPU_NAMES = ['ハル','ユキ','アオイ','カイ','リン','ソラ','ナギ','ツバキ','コウ','アン'];
+  const CPU_NAMES = ['ハル','ユキ','アオイ','カイ','リン','ソラ','ナギ','ツバキ','コウ','アン','ミオ','レン','サキ','ジン','ノア'];
   let peer = null;
   let guestConn = null;   // guest→host接続
   let hostConns = {};     // host: { connId: DataConnection }
@@ -2323,6 +3071,7 @@ const P2PEngine = (() => {
       votes:{}, humanVotedSet:new Set(), tallyDone:false,
       accuCount:{}, seerKnown:{}, log:[],
     };
+    BRAIN.initR(R); // BRAIN メモリ初期化
     // CPUにパーソナリティをランダム付与
     R.players.forEach(p => { if (p.isCpu) p.personality = rand(CPU_PERSONALITIES); });
 
@@ -2343,16 +3092,17 @@ const P2PEngine = (() => {
   // ── 夜 ──────────────────────────────────────────────
   function startWolfChat() {
     R.phase='wolf_chat';
+    BRAIN.initR(R);
     const wolves = alive().filter(p=>p.role==='WEREWOLF');
     sendToWolves({ type:'wolf_chat_start', wolf_names:wolves.map(p=>p.name) });
     const cpuWolves = wolves.filter(p=>p.isCpu);
     const vill = alive().filter(p=>p.role!=='WEREWOLF');
     if (cpuWolves.length && vill.length) {
-      const tgt = topAcc(vill)||rand(vill);
+      const tgt = BRAIN.wolfNightTarget(R) || topAcc(vill) || rand(vill);
       let t = 1000;
       cpuWolves.forEach(w => {
-        later(t, ()=>sendToWolves({type:'wolf_chat_msg',name:w.name,text:tplFill(rand(TPL.wolf_night.slice(0,4)),tgt.name)}));
-        t += 1400;
+        later(t, ()=>sendToWolves({type:'wolf_chat_msg',name:w.name,text:tplFill(rand(TPL.wolf_night),tgt.name)}));
+        t += 1400 + Math.floor(Math.random()*600);
       });
     }
   }
@@ -2393,23 +3143,44 @@ const P2PEngine = (() => {
   }
 
   function doCpuNight() {
+    BRAIN.initR(R);
     const al = alive();
-    // 占い師CPU（毎夜）
+    // 占い師CPU（毎夜）: 疑い度の高い未占い者を優先
     const cpuSeer = al.find(p=>p.isCpu&&p.role==='SEER');
     if (cpuSeer) {
       const unk = al.filter(p=>p!==cpuSeer&&R.seerKnown[p.name]===undefined);
-      const t = unk.length?rand(unk):rand(al.filter(p=>p!==cpuSeer));
+      let t = null;
+      if (unk.length) {
+        let best=-1,b=null;
+        unk.forEach(p=>{const s=(R.suspicion?.[p.name]||0); if(s>best){best=s;b=p;}});
+        t = b || rand(unk);
+      } else { t = rand(al.filter(p=>p!==cpuSeer)); }
       if (t) R.seerKnown[t.name]=(t.role==='WEREWOLF');
     }
-    // 人狼・騎士CPU（初日から行動可能）
+    // 人狼CPU標的（BRAIN 戦略）
     const cpuWolves = al.filter(p=>p.isCpu&&p.role==='WEREWOLF');
     const vill = al.filter(p=>p.role!=='WEREWOLF');
-    if (cpuWolves.length && vill.length) R.wolfTarget=(topAcc(vill)||rand(vill)).name;
+    if (cpuWolves.length && vill.length) {
+      const tgt = BRAIN.wolfNightTarget(R) || topAcc(vill) || rand(vill);
+      if (tgt) R.wolfTarget = tgt.name;
+    }
+    // 騎士CPU: CO占い師>霊媒師>かばわれてる人 を護衛
     const cpuDoc = al.find(p=>p.isCpu&&p.role==='DOCTOR');
     if (cpuDoc) {
-      const cands = (vill.length?vill:al).filter(p=>p.name!==R.lastDoctorTarget);
-      const t = rand(cands.length?cands:(vill.length?vill:al));
-      if (t) R.doctorTarget=t.name;
+      const baseCands = (vill.length?vill:al).filter(p=>p.name!==R.lastDoctorTarget && p.name!==cpuDoc.name);
+      let t = null;
+      const trueSeerCO = (R.seerCOs||[]).find(c=>{const p=R.players.find(x=>x.name===c.name); return p&&p.alive&&p.role==='SEER';});
+      if (trueSeerCO) t = baseCands.find(p=>p.name===trueSeerCO.name);
+      if (!t) {
+        const trueMedCO = (R.mediumCOs||[]).find(c=>{const p=R.players.find(x=>x.name===c.name); return p&&p.alive&&p.role==='MEDIUM';});
+        if (trueMedCO) t = baseCands.find(p=>p.name===trueMedCO.name);
+      }
+      if (!t && baseCands.length) {
+        let best=-Infinity,b=null;
+        baseCands.forEach(p=>{const sc=(R.coverCount?.[p.name]||0)-(R.suspicion?.[p.name]||0)*0.5; if(sc>best){best=sc;b=p;}});
+        t = b || rand(baseCands);
+      }
+      if (t) R.doctorTarget = t.name;
     }
   }
 
@@ -2518,7 +3289,8 @@ const P2PEngine = (() => {
       const delay = (player.personality==='aggressive') ? (1400+Math.random()*1600) : (2000+Math.random()*2200);
       later(delay, () => {
         if (R.phase !== 'discuss') return;
-        const txt = cpuTpl(player);
+        const txt = BRAIN.speak(R, player);
+        BRAIN.parseClaim(R, player.name, txt);
         R.discMsgs.push({ name:player.name, text:txt });
         broadcast({ type:'disc_message', name:player.name, text:txt });
         R.discIdx++;
@@ -2541,10 +3313,7 @@ const P2PEngine = (() => {
 
   function handleDiscMsg(pname, text) {
     if (R.phase !== 'discuss') return;
-    alive().forEach(p => {
-      if (p.name !== pname && text.includes(p.name))
-        R.accuCount[p.name] = (R.accuCount[p.name]||0) + 1;
-    });
+    BRAIN.parseClaim(R, pname, text); // 人間発言から CO・かばう・疑うを学習
     R.discMsgs.push({ name:pname, text });
     broadcast({ type:'disc_message', name:pname, text });
     // 順番が来ていたプレイヤーの発言なら次へ進む（フリー入力はターン外でも発言可）
@@ -2564,7 +3333,7 @@ const P2PEngine = (() => {
     broadcast({type:'vote_start',alive:al.map(p=>({name:p.name}))});
     const cpus=al.filter(p=>p.isCpu);
     cpus.forEach((cpu,i)=>later(900+i*600,()=>{
-      const tgt=cpuVoteTarget(cpu);
+      const tgt=BRAIN.vote(R, cpu);
       if (tgt) R.votes[cpu.name]=tgt.name;
       const humansVoted=R.humanVotedSet.size;
       const humanCount=al.filter(p=>!p.isCpu).length;
