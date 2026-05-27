@@ -371,6 +371,7 @@ let _usedSongs = [];
 let _audioUnlocked = false;
 let _primedPool = {}; // iOS対策: ユーザータップ時に全曲プライミング
 let _bgmMuted = false; // 端末ごとのミュート（同室複数スマホ対策）
+let _openingAudio = null; // オープニング音楽の直接参照（bgmAudio が .catch() で null になっても確実に止められるよう保持）
 
 // iOS/Android: 最初のタップで全曲をプライミング（事前に play→pause して再生権を確保）
 function unlockAudio() {
@@ -392,9 +393,10 @@ function unlockAudio() {
   SONGS.forEach(song => {
     try {
       const a = new Audio(song);
-      a.volume = 0;
+      a.muted = true;   // ← volume=0 ではなく muted=true でiOSハードウェア音声出力を完全遮断
+      a.volume = 0.55;  // ← 後で使うときの音量を事前セット
       const p = a.play();
-      const ready = () => { a.pause(); a.currentTime = 0; a.volume = 0.55; _primedPool[song] = a; };
+      const ready = () => { a.pause(); a.muted = false; a.currentTime = 0; _primedPool[song] = a; };
       if (p && typeof p.then === 'function') { p.then(ready).catch(() => {}); }
       else { ready(); }
     } catch(e) {}
@@ -421,6 +423,15 @@ function _pickSong() {
 }
 
 function stopMusic() {
+  // _openingAudio が bgmAudio と別要素になっている場合（.catch() で bgmAudio が null になった後）も止める
+  if (_openingAudio && _openingAudio !== bgmAudio) {
+    const oa = _openingAudio;
+    _openingAudio = null;
+    try { oa.onended = null; } catch(e) {}
+    try { oa.pause(); } catch(e) {}
+  } else {
+    _openingAudio = null;
+  }
   if (!bgmAudio) return;
   const a = bgmAudio;
   bgmAudio = null;
@@ -470,9 +481,13 @@ function playMusicSync(src, startedAt, onEnd=null) {
 }
 
 function fadeOutMusic(duration=1500, onDone=null) {
-  if (!bgmAudio) { if (onDone) onDone(); return; }
-  const a = bgmAudio;
-  const startVol = a.volume;
+  // bgmAudio が null でも _openingAudio にフォールバック（.catch() で参照が切れた場合に対応）
+  const a = bgmAudio || _openingAudio;
+  if (!a) { if (onDone) onDone(); return; }
+  if (bgmAudio === a) bgmAudio = null;
+  _openingAudio = null;
+  try { a.onended = null; } catch(e) {} // フェード中に onended が発火しないようにする
+  const startVol = (a.volume > 0) ? a.volume : 0.55;
   const steps = 30;
   const ms = Math.max(30, duration/steps);
   let step = 0;
@@ -482,7 +497,6 @@ function fadeOutMusic(duration=1500, onDone=null) {
     if (step >= steps) {
       clearInterval(id);
       try{a.pause();}catch(e){}
-      if (bgmAudio===a) bgmAudio=null;
       if (onDone) onDone();
     }
   }, ms);
@@ -1132,7 +1146,7 @@ function bindEvents() {
   // PRE-OPENING tap → unlock audio & start story
   on('preOpeningTap', () => {
     unlockAudio();
-    playMusic(_pickSong());
+    _openingAudio = playMusic(_pickSong()); // 直接参照を保存（bgmAudio が .catch() で null になっても止められるように）
     O_opening = { idx: 0, text: '' };
     mode = 'opening';
     render();
@@ -2058,10 +2072,7 @@ let O_opening = { idx: 0, text: '' };
 function runOpeningStory() {
   clearTimeout(openingTimer);
   if (mode !== 'opening') return;
-  // 最初の呼び出し時にオープニング音楽を開始（自動再生制限の場合は無音で継続）
-  if (O_opening.idx === 0 && !bgmAudio) {
-    playMusic(_pickSong());
-  }
+  // ※ 音楽は preOpeningTap で1回だけ再生済み。ここで再生すると二重になるため削除
   const seg = STORY_SEGMENTS[O_opening.idx];
   if (seg === undefined) {
     openingTimer = setTimeout(() => {
