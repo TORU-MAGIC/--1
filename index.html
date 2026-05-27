@@ -923,12 +923,12 @@ function renderGameOver() {
   const bColor = isVillage ? '#22c55e' : '#ef4444';
 
   const rows = S.players.map(p => {
-    const info = ROLES[p.role];
+    const info = ROLES[p.role] || {};
     const status = p.alive ? '✅ 生存' : '💀 死亡';
-    return `<div class="player-row" style="border-left-color:${info.color};">
-      <span class="pr-icon">${info.icon}</span>
+    return `<div class="player-row" style="border-left-color:${info.color||'#666'};">
+      <span class="pr-icon">${info.icon||'❓'}</span>
       <span class="pr-name">${esc(p.name)}</span>
-      <span class="pr-role" style="color:${info.color};">${info.name}</span>
+      <span class="pr-role" style="color:${info.color||'#aaa'};">${info.name||'不明'}</span>
       <span class="pr-status">${status}</span>
     </div>`;
   }).join('');
@@ -956,7 +956,7 @@ function renderGameOver() {
 
 // ========== EVENTS ==========
 function saveNames() {
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 15; i++) {
     const e = document.getElementById(`pn${i}`);
     if (e) S.playerNames[i] = e.value;
   }
@@ -3665,7 +3665,14 @@ function handleServer(data) {
     case 'vote_result':
       O.voteResult = {executed: data.executed, role: data.executed_role, tally: data.tally, nekomataVictim: data.nekomata_victim};
       O.winner = data.winner;
-      if (data.players) { O.finalPlayers = data.players; O.log = data.log || []; }
+      if (data.players && data.players.length > 0) {
+        O.finalPlayers = data.players.map(p => ({
+          name: p.name || '?',
+          role: p.role || undefined,
+          alive: !!p.alive,
+        }));
+        O.log = data.log || [];
+      }
       // 処刑された人を死亡リストへ（役職は内部保持のみ、表示はしない）
       if (data.executed) {
         const av = getAvatar(data.executed, O.players);
@@ -3682,7 +3689,16 @@ function handleServer(data) {
       }
       O.phase = 'vote_result'; break;
     case 'game_over':
-      O.winner = data.winner; O.finalPlayers = data.players;
+      O.winner = data.winner;
+      // data.players が null/undefined の場合は既存の finalPlayers を保持（フォールバック）
+      if (data.players && data.players.length > 0) {
+        // role が欠落しているプレイヤーがいても表示が壊れないよう保護
+        O.finalPlayers = data.players.map(p => ({
+          name: p.name || '?',
+          role: p.role || undefined,
+          alive: !!p.alive,
+        }));
+      }
       O.log = data.log || []; O.eliminatedLastNight = data.eliminated;
       O.phase = 'game_over';
       setTimeout(() => spawnConfetti(
@@ -4315,12 +4331,15 @@ function renderOVoteResult() {
 function renderOGameOver() {
   const isV = O.winner === 'village';
   const color = isV ? '#4ade80' : '#f87171';
-  const rows = O.finalPlayers.map(p => {
+  const players = (O.finalPlayers && O.finalPlayers.length > 0)
+    ? O.finalPlayers
+    : (O.players || []).map(p => ({ name: p.name, role: undefined, alive: false }));
+  const rows = players.map(p => {
     const info = ROLES[p.role] || {};
     return `<div class="player-row" style="border-left-color:${info.color||'#666'};">
-      <span class="pr-icon">${info.icon||'?'}</span>
+      <span class="pr-icon">${info.icon||'❓'}</span>
       <span class="pr-name">${esc(p.name)}</span>
-      <span class="pr-role" style="color:${info.color||'#aaa'};">${info.name||p.role}</span>
+      <span class="pr-role" style="color:${info.color||'#aaa'};">${info.name||p.role||'不明'}</span>
       <span class="pr-status">${p.alive?'✅ 生存':'💀 死亡'}</span>
     </div>`;
   }).join('');
