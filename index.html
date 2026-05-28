@@ -1289,13 +1289,18 @@ function bindEvents() {
   on('tCatAccuse',   () => { O.tplStep = 'tgt_accuse';   render(); });
   on('tCatDefend',   () => { O.tplStep = 'msg_defend';   render(); });
   on('tCatAgree',    () => { O.tplStep = 'tgt_agree';    render(); });
-  on('tCatSeer',     () => { O.tplStep = 'tgt_seer';     render(); });
-  on('tCatMedium',   () => { O.tplStep = 'tgt_medium';   render(); });
-  on('tCatDoctor',   () => { O.tplStep = 'msg_doctor';   render(); });
-  on('tCatNeko',     () => { O.tplStep = 'msg_neko';     render(); });
-  on('tCatQuestion', () => { O.tplStep = 'msg_question'; render(); });
-  on('tCatPressure', () => { O.tplStep = 'msg_pressure'; render(); });
-  on('tCatBack',     () => { O.tplStep = 'cat'; O.tplTarget = null; render(); });
+  on('tCatSeer',      () => { O.tplStep = 'tgt_seer';      render(); });
+  on('tCatMedium',    () => { O.tplStep = 'tgt_medium';    render(); });
+  on('tCatDoctor',    () => { O.tplStep = 'msg_doctor';    render(); });
+  on('tCatNeko',      () => { O.tplStep = 'msg_neko';      render(); });
+  on('tCatFakeCO',    () => { O.tplStep = 'fake_co_pick';  render(); });
+  on('fakeSeerCO',    () => { O.tplStep = 'tgt_seer';      render(); });
+  on('fakeMediumCO',  () => { O.tplStep = 'tgt_medium';    render(); });
+  on('fakeDoctorCO',  () => { O.tplStep = 'msg_doctor';    render(); });
+  on('fakeNekoCO',    () => { O.tplStep = 'msg_neko';      render(); });
+  on('tCatQuestion',  () => { O.tplStep = 'msg_question';  render(); });
+  on('tCatPressure',  () => { O.tplStep = 'msg_pressure';  render(); });
+  on('tCatBack',      () => { O.tplStep = 'cat'; O.tplTarget = null; render(); });
 
   // DISCUSS - target selection buttons (data-step attribute)
   document.querySelectorAll('[data-step]').forEach(btn => {
@@ -4000,6 +4005,7 @@ function renderTplPicker() {
     const isMedium = O.myRole === 'MEDIUM';
     const isDoctor = O.myRole === 'DOCTOR';
     const isNeko   = O.myRole === 'NEKOMATA';
+    const isWolf   = O.myRole === 'WEREWOLF' || O.myRole === 'MADMAN';
     const coBtn = isSeer
       ? `<div style="grid-column:span 2;"><button class="tpl-cat" id="tCatSeer" style="width:100%;">🔮 占い情報を公開（CO）▶</button><p style="color:#475569;font-size:.7rem;text-align:center;margin:.2rem 0 0;">占い師として名乗り出て占い結果を伝える</p></div>`
       : isMedium
@@ -4008,6 +4014,8 @@ function renderTplPicker() {
       ? `<div style="grid-column:span 2;"><button class="tpl-cat" id="tCatDoctor" style="width:100%;">💊 騎士としてCOする</button><p style="color:#475569;font-size:.7rem;text-align:center;margin:.2rem 0 0;">護衛役としてカミングアウトする</p></div>`
       : isNeko
       ? `<div style="grid-column:span 2;"><button class="tpl-cat" id="tCatNeko" style="width:100%;">🐱 猫又としてCOする</button><p style="color:#475569;font-size:.7rem;text-align:center;margin:.2rem 0 0;">道連れ能力をアピールしてCOする</p></div>`
+      : isWolf
+      ? `<div style="grid-column:span 2;"><button class="tpl-cat" id="tCatFakeCO" style="width:100%;border-color:#7c3aed55;background:rgba(124,58,237,.13);">🎭 役職を騙る（偽CO）▶</button><p style="color:#475569;font-size:.7rem;text-align:center;margin:.2rem 0 0;">占い師・霊媒師・騎士・猫又として偽りのCOをする</p></div>`
       : '';
     return `
       <div style="background:rgba(251,191,36,0.08); border:1px solid #fbbf2444; border-radius:12px; padding:1rem; margin-top:0.5rem;">
@@ -4021,6 +4029,17 @@ function renderTplPicker() {
           <button class="tpl-cat" id="tCatPressure">⚡ 訴える</button>
           ${coBtn}
         </div>
+      </div>`;
+  }
+  if (step === 'fake_co_pick') {
+    return `
+      <div style="background:rgba(124,58,237,.1); border:1px solid #7c3aed44; border-radius:12px; padding:1rem; margin-top:0.5rem;">
+        <p style="color:#c4b5fd; font-weight:700; font-size:0.9rem; margin-bottom:0.6rem;">🎭 どの役職として偽COしますか？</p>
+        <button class="tpl-btn" id="fakeSeerCO"   style="border-left:3px solid #818cf8;">🔮 占い師として偽CO ▶（対象を選ぶ）</button>
+        <button class="tpl-btn" id="fakeMediumCO" style="border-left:3px solid #a78bfa;">👁️ 霊媒師として偽CO ▶（処刑者を選ぶ）</button>
+        <button class="tpl-btn" id="fakeDoctorCO" style="border-left:3px solid #34d399;">💊 騎士として偽CO</button>
+        <button class="tpl-btn" id="fakeNekoCO"   style="border-left:3px solid #fb923c;">🐱 猫又として偽CO</button>
+        <button class="tpl-btn" id="tCatBack" style="color:#64748b; margin-top:0.5rem;">← 戻る</button>
       </div>`;
   }
   if (step === 'tgt_accuse' || step === 'tgt_agree' || step === 'tgt_seer' || step === 'tgt_medium') {
