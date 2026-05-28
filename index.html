@@ -154,6 +154,17 @@ label { color: #94a3b8; font-size: 0.85rem; display: block; margin-bottom: 0.15r
 .rrc-name { font-size: 2.6rem; font-weight: 900; margin: 0.2rem 0; }
 .rrc-team { font-size: 0.85rem; color: #94a3b8; }
 .rrc-desc { font-size: 0.92rem; color: #cbd5e1; margin-top: 0.9rem; line-height: 1.65; }
+.rrc-tips { text-align:left; background:rgba(0,0,0,.28); border-radius:12px; padding:.75rem 1rem; margin-top:.9rem; }
+.rrc-tips-title { font-size:.76rem; font-weight:700; color:#94a3b8; letter-spacing:.07em; margin-bottom:.5rem; }
+.rrc-tips-item { font-size:.82rem; color:#b0bec5; line-height:1.65; padding:.1rem 0 .1rem 1.2rem; position:relative; }
+.rrc-tips-item::before { content:'💡'; position:absolute; left:0; }
+/* 人狼仲間バー */
+.wolf-ally-bar { display:flex; align-items:center; flex-wrap:wrap; gap:.45rem;
+  background:rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.3);
+  border-radius:10px; padding:.5rem .85rem; margin-bottom:.6rem; font-size:.83rem; }
+.wolf-ally-label { color:#f87171; font-weight:700; white-space:nowrap; }
+.wolf-ally-chip { background:rgba(239,68,68,.18); color:#fca5a5; border-radius:20px;
+  padding:.15rem .6rem; font-size:.8rem; }
 
 /* Chips */
 .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.4rem 0; }
@@ -507,13 +518,20 @@ function fadeOutMusic(duration=1500, onDone=null) {
 
 // ========== CONSTANTS ==========
 const ROLES = {
-  WEREWOLF: { name: '人狼',   icon: '🐺', team: 'wolf',    color: '#ef4444', desc: '夜に村人を1人襲います。村人チームを全滅させれば人狼チームの勝利！' },
-  VILLAGER: { name: '村人',   icon: '👤', team: 'village', color: '#22c55e', desc: '特殊な能力はありませんが、昼の議論と投票で人狼を見つけましょう。' },
-  SEER:     { name: '占い師', icon: '🔮', team: 'village', color: '#818cf8', desc: '夜に1人を選んで人狼かどうかを占えます。毎夜行動でき、情報を上手く活かしましょう。' },
-  DOCTOR:   { name: '騎士',   icon: '💊', team: 'village', color: '#34d399', desc: '夜に1人を選んで人狼の攻撃から守れます。同じ人を連続で守ることはできません。' },
-  MADMAN:   { name: '狂人',   icon: '🃏', team: 'wolf',    color: '#f59e0b', desc: '人狼の仲間ですが人狼の行動は知りません。人狼チームの勝利を目指します。' },
-  MEDIUM:   { name: '霊媒師', icon: '👁️', team: 'village', color: '#a78bfa', desc: '処刑された人の役職を夜に知ることができます。その情報を活かして村を守れ！' },
-  NEKOMATA: { name: '猫又',   icon: '🐱', team: 'village', color: '#fb923c', desc: '人狼に夜襲われると人狼を1人道連れにします。処刑されると無関係の1人も道連れ。' },
+  WEREWOLF: { name: '人狼',   icon: '🐺', team: 'wolf',    color: '#ef4444', desc: '夜に村人を1人襲います。村人チームを全滅させれば人狼チームの勝利！',
+    tips: ['昼間は「普通の村人」を演じて疑いを逸らそう。', '仲間の人狼を庇いすぎると怪しまれるので注意！', '強気な発言より、他の人の意見に乗る"同調型"の振る舞いが安全。', '占われても動じない態度が大切。詰められたら冷静に反論しよう。'] },
+  VILLAGER: { name: '村人',   icon: '👤', team: 'village', color: '#22c55e', desc: '特殊な能力はありませんが、昼の議論と投票で人狼を見つけましょう。',
+    tips: ['矛盾した発言や、やたら話をそらす人に注目しよう。', '発言が少なすぎる人・多数派にすぐ乗る人は怪しいことも。', '占い師の結果を大切に。情報を整理して投票に活かそう。', '積極的に発言して、自分が村人側であることをアピールしよう！'] },
+  SEER:     { name: '占い師', icon: '🔮', team: 'village', color: '#818cf8', desc: '夜に1人を選んで人狼かどうかを占えます。毎夜行動でき、情報を上手く活かしましょう。',
+    tips: ['初日からどんどん占って人狼の情報を集めよう。', '人狼を見つけたらタイミングを見てCO（カミングアウト）しよう。', '偽占い師（狂人）が出た場合は、占い実績と一貫性で信頼を得よう。', '早すぎるCOは人狼に狙われやすくなるので状況を見極めて！'] },
+  DOCTOR:   { name: '騎士',   icon: '💊', team: 'village', color: '#34d399', desc: '夜に1人を選んで人狼の攻撃から守れます。同じ人を連続で守ることはできません。',
+    tips: ['占い師がCOしていたら最優先で守ろう。', '同じ人を2夜連続では守れないため、分散して護衛する必要がある。', '自分の存在は基本的に秘密にして、人狼に狙われないようにしよう。', 'COすべきか迷ったら、村が人狼の誰かを排除できそうな時まで待つのも手。'] },
+  MADMAN:   { name: '狂人',   icon: '🃏', team: 'wolf',    color: '#f59e0b', desc: '人狼の仲間ですが人狼の行動は知りません。人狼チームの勝利を目指します。',
+    tips: ['偽占い師として「○○が人狼でした」と嘘の結果をCOするのが定番戦術。', '本物の占い師と矛盾させて、村人に混乱を与えよう。', '人狼が疑われたら、さりげなく庇う発言をしよう。', '自分が怪しまれそうになったら素直に「狂人です」と打ち明ける判断も大事！'] },
+  MEDIUM:   { name: '霊媒師', icon: '👁️', team: 'village', color: '#a78bfa', desc: '処刑された人の役職を夜に知ることができます。その情報を活かして村を守れ！',
+    tips: ['処刑後に「あの人は人狼／村人でした」と報告して議論を導こう。', '情報をCOするタイミングが重要。早すぎると人狼に狙われる。', '占い師と協力して2つの情報源で村を動かそう。', '人狼が処刑されたら「村人チームでした」と嘘をつく狂人に注意！'] },
+  NEKOMATA: { name: '猫又',   icon: '🐱', team: 'village', color: '#fb923c', desc: '人狼に夜襲われると人狼を1人道連れにします。処刑されると無関係の1人も道連れ。',
+    tips: ['COすれば人狼が夜襲いを躊躇う可能性がある（道連れを恐れるため）。', '処刑時は無関係の村人も道連れになるので、CO時期は慎重に。', '「私を処刑すると道連れが出る」と主張して、投票をそらすのも戦術。', '道連れにする相手は自動でランダムなので、うまく活かして流れを作ろう。'] },
 };
 
 const CONFIGS = {
@@ -706,6 +724,11 @@ function renderRoleReveal() {
   const info = ROLES[player.role];
   const teamLabel = info.team === 'wolf' ? '人狼チーム' : '村人チーム';
   const isLast = idx === total - 1;
+  const tipsHtml = (info.tips && info.tips.length) ? `
+    <div class="rrc-tips">
+      <div class="rrc-tips-title">📖 初心者ガイド</div>
+      ${info.tips.map(t => `<div class="rrc-tips-item">${t}</div>`).join('')}
+    </div>` : '';
   return `
     <p class="progress" style="margin-top:1.5rem;">役職確認 ${idx+1} / ${total}</p>
     <div class="role-reveal-card" style="border-color:${info.color}; background:${info.color}14;">
@@ -714,6 +737,7 @@ function renderRoleReveal() {
       <div class="rrc-name" style="color:${info.color};">${info.name}</div>
       <div class="rrc-team">【${teamLabel}】</div>
       <div class="rrc-desc">${info.desc}</div>
+      ${tipsHtml}
     </div>
     <button class="btn btn-primary" id="nextReveal">${isLast ? '🌙　ゲーム開始！' : '次の人へ ▶'}</button>
   `;
@@ -812,6 +836,11 @@ function renderWolf(actors) {
 
   const targets = alive().filter(p => p.role !== 'WEREWOLF');
   const sel = S._wolfLocalSel || '';
+  // 仲間の人狼バー（自分以外）
+  const allyChips = actors.map(a => `<span class="wolf-ally-chip">${esc(a.name)}</span>`).join('');
+  const allyBar = `<div class="wolf-ally-bar">
+    <span class="wolf-ally-label">🐺 人狼チーム：</span>${allyChips}
+  </div>`;
   const grid = targets.map(t => {
     const av = getAvatar(t.name, S.players || []);
     const isSel = sel === t.name;
@@ -822,6 +851,7 @@ function renderWolf(actors) {
     </div>`;
   }).join('');
   return `${hdr}
+    ${allyBar}
     <div class="night-grid">${grid}</div>
     <button class="btn btn-night" id="wolfConfirm" ${sel?'':'disabled'} style="opacity:${sel?1:.35};">確定 ▶</button>`;
 }
@@ -4091,6 +4121,10 @@ function renderORole() {
       <div class="rrc-team">【${teamLabel}】</div>
       <div class="rrc-desc">${info.desc}</div>
       ${wpHtml}
+      ${(info.tips && info.tips.length) ? `<div class="rrc-tips">
+        <div class="rrc-tips-title">📖 初心者ガイド</div>
+        ${info.tips.map(t => `<div class="rrc-tips-item">${t}</div>`).join('')}
+      </div>` : ''}
     </div>
     <div class="card" style="text-align:center;">
       <p style="color:#64748b; font-size:0.9rem;">全員が役職を確認したら、ホストが夜フェーズへ進めます</p>
@@ -4180,6 +4214,15 @@ function renderONight() {
   if (action === 'wolf') {
     // ── ステルスUI: 周囲からは普通の「夜チェック」画面に見える ──
     const sel = O._wolfNightSel || '';
+    // 仲間の人狼確認バー
+    const wolfAllies = (O.wolfPartnerNames || []);
+    const allyChips = wolfAllies.map(n => {
+      const isMe = n === O.playerName;
+      return `<span class="wolf-ally-chip">${esc(n)}${isMe ? '（あなた）' : ''}</span>`;
+    }).join('');
+    const allyBar = wolfAllies.length ? `<div class="wolf-ally-bar">
+      <span class="wolf-ally-label">🐺 人狼チーム：</span>${allyChips}
+    </div>` : '';
     const grid = targets.map(t => {
       const av = getAvatar(t.name, O.players);
       const isSel = sel === t.name;
@@ -4191,6 +4234,7 @@ function renderONight() {
     }).join('');
     return `
       ${ph('🌙', `第 ${O.day} 夜`, '村の様子を確認しています…', '#60a5fa')}
+      ${allyBar}
       <div class="night-grid">${grid}</div>
       <button class="btn btn-night" id="oNightSend" data-action="wolf" ${sel?'':'disabled'}
         style="opacity:${sel?1:.35};">確定 ▶</button>`;
