@@ -376,7 +376,7 @@ function getAvatar(name, players) {
 }
 
 // ========== AUDIO SYSTEM ==========
-const SONGS = ['人狼ゲーム1.mp3','人狼ゲーム2.mp3','人狼ゲーム3.mp3','人狼ゲーム4.mp3','人狼ゲーム5.mp3','人狼ゲーム6.mp3','月下の投票１'];
+const SONGS = ['人狼ゲーム1.mp3','人狼ゲーム2.mp3','人狼ゲーム3.mp3','人狼ゲーム4.mp3','人狼ゲーム5.mp3','人狼ゲーム6.mp3','月下の投票１','オオカミの夜１.mp3'];
 let bgmAudio = null;
 let _usedSongs = [];
 let _audioUnlocked = false;
@@ -1345,10 +1345,14 @@ function bindEvents() {
     const text = (input ? input.value : '').trim();
     if (!text) return;
     // CO検出
-    const seerKw = ['占い師','占いまし','占った','黒でした','白でした','人狼です','占い結果'];
-    const docKw  = ['騎士','護衛','守りまし'];
-    if (seerKw.some(kw=>text.includes(kw))) O.roleClaims[O.playerName]='SEER';
-    else if (docKw.some(kw=>text.includes(kw))) O.roleClaims[O.playerName]='DOCTOR';
+    const seerKw  = ['占い師','占いまし','占った','黒でした','白でした','人狼です','占い結果'];
+    const docKw   = ['騎士','護衛','守りまし'];
+    const medKw   = ['霊媒師','霊媒','霊視','処刑された','処刑者の役職'];
+    const nekoKw  = ['猫又','道連れ','ねこまた'];
+    if      (seerKw.some(kw=>text.includes(kw)))                             O.roleClaims[O.playerName]='SEER';
+    else if (docKw.some(kw=>text.includes(kw)))                              O.roleClaims[O.playerName]='DOCTOR';
+    else if (medKw.some(kw=>text.includes(kw)) && !O.roleClaims[O.playerName])  O.roleClaims[O.playerName]='MEDIUM';
+    else if (nekoKw.some(kw=>text.includes(kw)) && !O.roleClaims[O.playerName]) O.roleClaims[O.playerName]='NEKOMATA';
     wsSend({type:'disc_message', text});
     if (O.isMyDiscTurn) { O.isMyDiscTurn=false; O.tplStep=null; }
     if (input) input.value='';
@@ -3663,12 +3667,16 @@ function handleServer(data) {
       O.isMyDiscTurn = true; O.tplStep = 'cat'; O.tplTarget = null; break;
     case 'disc_message':
       O.discMsgs.push({name: data.name, text: data.text});
-      // カミングアウト自動検出（占い師・騎士キーワード）
+      // カミングアウト自動検出（占い師・騎士・霊媒師・猫又キーワード）
       if (!O.deadPlayers.find(d=>d.name===data.name)) {
-        const seerKw = ['占い師','占いまし','占い結果','占った','黒でした','白でした','人狼です！','人狼ではありません'];
-        const docKw  = ['騎士','護衛','守りまし'];
-        if (seerKw.some(kw=>data.text.includes(kw))) O.roleClaims[data.name] = 'SEER';
+        const seerKw   = ['占い師','占いまし','占い結果','占った','黒でした','白でした','人狼です！','人狼ではありません'];
+        const docKw    = ['騎士','護衛','守りまし'];
+        const medKw    = ['霊媒師','霊媒','霊視','処刑された','処刑者の役職'];
+        const nekoKw   = ['猫又','道連れ','ねこまた'];
+        if      (seerKw.some(kw=>data.text.includes(kw)))                           O.roleClaims[data.name] = 'SEER';
         else if (docKw.some(kw=>data.text.includes(kw)) && !O.roleClaims[data.name]) O.roleClaims[data.name] = 'DOCTOR';
+        else if (medKw.some(kw=>data.text.includes(kw)) && !O.roleClaims[data.name]) O.roleClaims[data.name] = 'MEDIUM';
+        else if (nekoKw.some(kw=>data.text.includes(kw)) && !O.roleClaims[data.name]) O.roleClaims[data.name] = 'NEKOMATA';
       }
       O.currentSpeaker = null; break;
     case 'day_start':
@@ -3832,8 +3840,9 @@ function renderODiscuss() {
     const av = getAvatar(m.name, O.players);
     const isMe = m.name === O.playerName;
     const claim = O.roleClaims[m.name];
-    const claimBadge = claim
-      ? `<span class="claim-badge claim-unverified">${claim==='SEER'?'🔮? 占い師CO':'💊? 騎士CO'}</span>` : '';
+    const claimBadge = claim ? `<span class="claim-badge claim-unverified">${
+      claim==='SEER'?'🔮? 占い師CO':claim==='DOCTOR'?'💊? 騎士CO':claim==='MEDIUM'?'👁️? 霊媒師CO':'🐱? 猫又CO'
+    }</span>` : '';
     // クイック同調ボタン（自分のターンで他人のメッセージのとき）
     const agreeBtn = (O.isMyDiscTurn && !isMe)
       ? `<button class="quick-agree" data-agree-name="${esc(m.name)}">👍 同調</button>` : '';
@@ -3884,7 +3893,9 @@ function renderODiscuss() {
   const aliveChips = O.alive.map(p => {
     const av = getAvatar(p.name, O.players);
     const claim = O.roleClaims[p.name];
-    const badge = claim ? `<span class="claim-badge claim-unverified">${claim==='SEER'?'🔮?':'💊?'}</span>` : '';
+    const badge = claim ? `<span class="claim-badge claim-unverified">${
+      claim==='SEER'?'🔮?':claim==='DOCTOR'?'💊?':claim==='MEDIUM'?'👁️?':'🐱?'
+    }</span>` : '';
     return `<span class="chip">${av.emoji} ${esc(p.name)}${badge}</span>`;
   }).join('');
 
@@ -4315,7 +4326,9 @@ function renderOVote() {
       ${targets.map(p => {
         const av = getAvatar(p.name, O.players);
         const claim = O.roleClaims[p.name];
-        const badge = claim ? `<span style="font-size:.6rem;color:#fbbf24;display:block;">${claim==='SEER'?'🔮?':'💊?'}</span>` : '';
+        const badge = claim ? `<span style="font-size:.6rem;color:#fbbf24;display:block;">${
+          claim==='SEER'?'🔮?':claim==='DOCTOR'?'💊?':claim==='MEDIUM'?'👁️?':'🐱?'
+        }</span>` : '';
         return `<button class="vote-avatar-btn" data-name="${esc(p.name)}"
           style="display:flex;flex-direction:column;align-items:center;min-width:68px;padding:.5rem .4rem;
                  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:12px;
