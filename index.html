@@ -1290,6 +1290,9 @@ function bindEvents() {
   on('tCatDefend',   () => { O.tplStep = 'msg_defend';   render(); });
   on('tCatAgree',    () => { O.tplStep = 'tgt_agree';    render(); });
   on('tCatSeer',     () => { O.tplStep = 'tgt_seer';     render(); });
+  on('tCatMedium',   () => { O.tplStep = 'tgt_medium';   render(); });
+  on('tCatDoctor',   () => { O.tplStep = 'msg_doctor';   render(); });
+  on('tCatNeko',     () => { O.tplStep = 'msg_neko';     render(); });
   on('tCatQuestion', () => { O.tplStep = 'msg_question'; render(); });
   on('tCatPressure', () => { O.tplStep = 'msg_pressure'; render(); });
   on('tCatBack',     () => { O.tplStep = 'cat'; O.tplTarget = null; render(); });
@@ -1299,9 +1302,10 @@ function bindEvents() {
     btn.addEventListener('click', () => {
       const step = btn.dataset.step;
       O.tplTarget = btn.dataset.name;
-      if (step === 'tgt_accuse') O.tplStep = 'msg_accuse';
-      else if (step === 'tgt_agree') O.tplStep = 'msg_agree';
-      else if (step === 'tgt_seer')  O.tplStep = 'msg_seer';
+      if (step === 'tgt_accuse')  O.tplStep = 'msg_accuse';
+      else if (step === 'tgt_agree')  O.tplStep = 'msg_agree';
+      else if (step === 'tgt_seer')   O.tplStep = 'msg_seer';
+      else if (step === 'tgt_medium') O.tplStep = 'msg_medium';
       render();
     });
   });
@@ -1311,10 +1315,11 @@ function bindEvents() {
     btn.addEventListener('click', () => {
       const msg = btn.dataset.msg;
       if (!msg) return;
-      // 占い師カミングアウト検出（msg_seerステップで送信した場合）
-      if (O.tplStep === 'msg_seer') {
-        O.roleClaims[O.playerName] = 'SEER';
-      }
+      // カミングアウト検出（各COステップで送信した場合）
+      if      (O.tplStep === 'msg_seer')    O.roleClaims[O.playerName] = 'SEER';
+      else if (O.tplStep === 'msg_medium')  O.roleClaims[O.playerName] = 'MEDIUM';
+      else if (O.tplStep === 'msg_doctor')  O.roleClaims[O.playerName] = 'DOCTOR';
+      else if (O.tplStep === 'msg_neko')    O.roleClaims[O.playerName] = 'NEKOMATA';
       wsSend({type:'disc_message', text: msg});
       O.isMyDiscTurn = false; O.tplStep = null;
       render();
@@ -2123,6 +2128,14 @@ const TPL = {
     '霊媒師としてCOします 👁️',
     '霊媒師COします。霊視で確認します 👁️',
     '私が霊媒師です。処刑された人の役職が分かります 👁️',
+  ],
+  // ── 猫又CO ──
+  co_neko: [
+    '猫又としてCOします 🐱',
+    '私は猫又です。処刑すると道連れが出ます 🐱⚠️',
+    '猫又COします。人狼に夜襲われたら道連れにします 🐱',
+    '猫又です！処刑は慎重に考えてください 🐱',
+    '猫又なので処刑コストが高いですよ 🐱🛑',
   ],
   // 霊媒結果
   medium_result_wolf: [
@@ -3983,7 +3996,19 @@ function renderODiscuss() {
 function renderTplPicker() {
   const step = O.tplStep;
   if (!step || step === 'cat') {
-    const isSeer = O.myRole === 'SEER';
+    const isSeer   = O.myRole === 'SEER';
+    const isMedium = O.myRole === 'MEDIUM';
+    const isDoctor = O.myRole === 'DOCTOR';
+    const isNeko   = O.myRole === 'NEKOMATA';
+    const coBtn = isSeer
+      ? `<div style="grid-column:span 2;"><button class="tpl-cat" id="tCatSeer" style="width:100%;">🔮 占い情報を公開（CO）▶</button><p style="color:#475569;font-size:.7rem;text-align:center;margin:.2rem 0 0;">占い師として名乗り出て占い結果を伝える</p></div>`
+      : isMedium
+      ? `<div style="grid-column:span 2;"><button class="tpl-cat" id="tCatMedium" style="width:100%;">👁️ 霊媒結果を公開（CO）▶</button><p style="color:#475569;font-size:.7rem;text-align:center;margin:.2rem 0 0;">霊媒師としてCOして処刑者の役職を報告する</p></div>`
+      : isDoctor
+      ? `<div style="grid-column:span 2;"><button class="tpl-cat" id="tCatDoctor" style="width:100%;">💊 騎士としてCOする</button><p style="color:#475569;font-size:.7rem;text-align:center;margin:.2rem 0 0;">護衛役としてカミングアウトする</p></div>`
+      : isNeko
+      ? `<div style="grid-column:span 2;"><button class="tpl-cat" id="tCatNeko" style="width:100%;">🐱 猫又としてCOする</button><p style="color:#475569;font-size:.7rem;text-align:center;margin:.2rem 0 0;">道連れ能力をアピールしてCOする</p></div>`
+      : '';
     return `
       <div style="background:rgba(251,191,36,0.08); border:1px solid #fbbf2444; border-radius:12px; padding:1rem; margin-top:0.5rem;">
         <p style="color:#fbbf24; font-weight:700; font-size:0.9rem; margin-bottom:0.6rem;">👉 あなたの番です！発言を選んでください</p>
@@ -3994,45 +4019,64 @@ function renderTplPicker() {
           <button class="tpl-cat" id="tCatAgree">👍 同調する ▶</button>
           <button class="tpl-cat" id="tCatQuestion">❓ 質問する</button>
           <button class="tpl-cat" id="tCatPressure">⚡ 訴える</button>
-          ${isSeer ? `<div style="grid-column:span 2;"><button class="tpl-cat" id="tCatSeer" style="width:100%;">🔮 占い情報を公開（CO）▶</button><p style="color:#475569;font-size:.7rem;text-align:center;margin:.2rem 0 0;">占い師として名乗り出て占い結果を伝える</p></div>` : ''}
+          ${coBtn}
         </div>
       </div>`;
   }
-  if (step === 'tgt_accuse' || step === 'tgt_agree' || step === 'tgt_seer') {
+  if (step === 'tgt_accuse' || step === 'tgt_agree' || step === 'tgt_seer' || step === 'tgt_medium') {
     const label = step === 'tgt_accuse' ? '🔍 誰を疑いますか？'
                 : step === 'tgt_agree'  ? '👍 誰への同調ですか？'
-                                        : '🔮 誰の占い結果ですか？';
-    const targets = O.alive.filter(p => p.name !== O.playerName);
+                : step === 'tgt_seer'   ? '🔮 誰の占い結果ですか？'
+                                        : '👁️ 誰の役職を報告しますか？（処刑された人）';
+    // 霊媒師は死亡者から選ぶ、それ以外は生存者から
+    const targets = step === 'tgt_medium'
+      ? O.deadPlayers.map(d => ({ name: d.name }))
+      : O.alive.filter(p => p.name !== O.playerName);
     const btns = targets.map(p =>
       `<button class="tpl-btn" id="tgt_${esc(p.name)}" data-step="${step}" data-name="${esc(p.name)}">${esc(p.name)}</button>`
     ).join('');
     return `
       <div style="background:rgba(251,191,36,0.08); border:1px solid #fbbf2444; border-radius:12px; padding:1rem; margin-top:0.5rem;">
         <p style="color:#fbbf24; font-weight:700; font-size:0.9rem; margin-bottom:0.6rem;">${label}</p>
-        ${btns}
+        ${btns || '<p style="color:#475569;font-size:.8rem;">対象者がいません</p>'}
         <button class="tpl-btn" id="tCatBack" style="color:#64748b; margin-top:0.5rem;">← 戻る</button>
       </div>`;
   }
   // msg_* steps
   let templates = [];
-  if (step === 'msg_neutral')   templates = TPL.neutral;
+  let heading = '💬 発言を選んでください';
+  if      (step === 'msg_neutral')  templates = TPL.neutral;
   else if (step === 'msg_accuse')   templates = TPL.accuse.map(t => tplFill(t, O.tplTarget));
   else if (step === 'msg_defend')   templates = TPL.defend;
   else if (step === 'msg_agree')    templates = TPL.agree.map(t => tplFill(t, O.tplTarget));
   else if (step === 'msg_question') templates = TPL.question;
   else if (step === 'msg_pressure') templates = TPL.pressure;
   else if (step === 'msg_seer') {
+    heading = `🔮 ${O.tplTarget} さんの占い結果を選んでください`;
     templates = [
       ...TPL.seer_wolf.map(t => tplFill(t, O.tplTarget)),
       ...TPL.seer_safe.map(t => tplFill(t, O.tplTarget)),
     ];
+  } else if (step === 'msg_medium') {
+    heading = `👁️ ${O.tplTarget} さんの霊媒結果を選んでください`;
+    templates = [
+      ...TPL.co_medium,
+      ...TPL.medium_result_wolf.map(t => tplFill(t, O.tplTarget)),
+      ...TPL.medium_result_safe.map(t => tplFill(t, O.tplTarget)),
+    ];
+  } else if (step === 'msg_doctor') {
+    heading = '💊 騎士COの発言を選んでください';
+    templates = TPL.co_doctor;
+  } else if (step === 'msg_neko') {
+    heading = '🐱 猫又COの発言を選んでください';
+    templates = TPL.co_neko;
   }
   const btns = templates.map(t =>
     `<button class="tpl-btn tpl-send" data-msg="${esc(t)}">${t}</button>`
   ).join('');
   return `
     <div style="background:rgba(251,191,36,0.08); border:1px solid #fbbf2444; border-radius:12px; padding:1rem; margin-top:0.5rem;">
-      <p style="color:#fbbf24; font-weight:700; font-size:0.9rem; margin-bottom:0.6rem;">💬 発言を選んでください</p>
+      <p style="color:#fbbf24; font-weight:700; font-size:0.9rem; margin-bottom:0.6rem;">${heading}</p>
       ${btns}
       <button class="tpl-btn" id="tCatBack" style="color:#64748b; margin-top:0.5rem;">← 戻る</button>
     </div>`;
