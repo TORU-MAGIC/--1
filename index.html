@@ -518,21 +518,103 @@ function fadeOutMusic(duration=1500, onDone=null) {
 
 // ========== CONSTANTS ==========
 const ROLES = {
-  WEREWOLF: { name: '人狼',   icon: '🐺', team: 'wolf',    color: '#ef4444', desc: '夜に村人を1人襲います。村人チームを全滅させれば人狼チームの勝利！',
-    tips: ['昼間は「普通の村人」を演じて疑いを逸らそう。', '仲間の人狼を庇いすぎると怪しまれるので注意！', '強気な発言より、他の人の意見に乗る"同調型"の振る舞いが安全。', '占われても動じない態度が大切。詰められたら冷静に反論しよう。'] },
-  VILLAGER: { name: '村人',   icon: '👤', team: 'village', color: '#22c55e', desc: '特殊な能力はありませんが、昼の議論と投票で人狼を見つけましょう。',
-    tips: ['矛盾した発言や、やたら話をそらす人に注目しよう。', '発言が少なすぎる人・多数派にすぐ乗る人は怪しいことも。', '占い師の結果を大切に。情報を整理して投票に活かそう。', '積極的に発言して、自分が村人側であることをアピールしよう！'] },
-  SEER:     { name: '占い師', icon: '🔮', team: 'village', color: '#818cf8', desc: '夜に1人を選んで人狼かどうかを占えます。毎夜行動でき、情報を上手く活かしましょう。',
-    tips: ['初日からどんどん占って人狼の情報を集めよう。', '人狼を見つけたらタイミングを見てCO（カミングアウト）しよう。', '偽占い師（狂人）が出た場合は、占い実績と一貫性で信頼を得よう。', '早すぎるCOは人狼に狙われやすくなるので状況を見極めて！'] },
-  DOCTOR:   { name: '騎士',   icon: '💊', team: 'village', color: '#34d399', desc: '夜に1人を選んで人狼の攻撃から守れます。同じ人を連続で守ることはできません。',
-    tips: ['占い師がCOしていたら最優先で守ろう。', '同じ人を2夜連続では守れないため、分散して護衛する必要がある。', '自分の存在は基本的に秘密にして、人狼に狙われないようにしよう。', 'COすべきか迷ったら、村が人狼の誰かを排除できそうな時まで待つのも手。'] },
-  MADMAN:   { name: '狂人',   icon: '🃏', team: 'wolf',    color: '#f59e0b', desc: '人狼の仲間ですが人狼の行動は知りません。人狼チームの勝利を目指します。',
-    tips: ['偽占い師として「○○が人狼でした」と嘘の結果をCOするのが定番戦術。', '本物の占い師と矛盾させて、村人に混乱を与えよう。', '人狼が疑われたら、さりげなく庇う発言をしよう。', '自分が怪しまれそうになったら素直に「狂人です」と打ち明ける判断も大事！'] },
-  MEDIUM:   { name: '霊媒師', icon: '👁️', team: 'village', color: '#a78bfa', desc: '処刑された人の役職を夜に知ることができます。その情報を活かして村を守れ！',
-    tips: ['処刑後に「あの人は人狼／村人でした」と報告して議論を導こう。', '情報をCOするタイミングが重要。早すぎると人狼に狙われる。', '占い師と協力して2つの情報源で村を動かそう。', '人狼が処刑されたら「村人チームでした」と嘘をつく狂人に注意！'] },
-  NEKOMATA: { name: '猫又',   icon: '🐱', team: 'village', color: '#fb923c', desc: '人狼に夜襲われると人狼を1人道連れにします。処刑されると無関係の1人も道連れ。',
-    tips: ['COすれば人狼が夜襲いを躊躇う可能性がある（道連れを恐れるため）。', '処刑時は無関係の村人も道連れになるので、CO時期は慎重に。', '「私を処刑すると道連れが出る」と主張して、投票をそらすのも戦術。', '道連れにする相手は自動でランダムなので、うまく活かして流れを作ろう。'] },
+  WEREWOLF: { name: '人狼',   icon: '🐺', team: 'wolf',    color: '#ef4444',
+    desc: '夜になると仲間の人狼と相談し、村人を1人選んで襲撃します。正体を隠しながら村人を減らし、人狼の数が村人と同数になれば勝利です。',
+    ability: '【夜の能力】仲間と相談して村人を1人襲撃する',
+    winCon: '【勝利条件】人狼の人数が村人陣営の人数と同じになれば勝ち',
+    tips: ['昼間は「普通の村人」を演じて疑いを逸らそう。喋らなすぎても怪しまれる。', '仲間の人狼を不自然に庇うと共倒れの原因に。時には仲間を切る判断も必要。', '強気に先導するより、他人の意見に乗る"同調型"が初心者には安全。', '占い師にCOされても動じない態度が大切。詰められたら落ち着いて反論しよう。', '占い師(本物)を早めに襲撃すると村の情報源を断てる。誰がCOしたか要チェック。', '誰を襲うかは「村の中心人物」「鋭い発言をする人」を優先すると効果的。'] },
+  VILLAGER: { name: '村人',   icon: '👤', team: 'village', color: '#22c55e',
+    desc: '特殊能力を持たない一般市民。しかし人数は最多で、議論と投票で人狼を追い詰める村人陣営の主力です。鋭い観察眼が武器になります。',
+    ability: '【夜の能力】なし（昼の議論と投票が仕事）',
+    winCon: '【勝利条件】人狼を全員処刑できれば勝ち',
+    tips: ['矛盾した発言・話をそらす人・誰も疑わない人に注目しよう。', '発言が少なすぎる人や、多数派にすぐ流される人は人狼のことも。', '占い師の結果は村の生命線。誰が本物か見極めて情報を整理しよう。', '黙っていると人狼に疑われやすい。積極的に発言して村目線をアピール！', '占い師が2人出たら、片方は人狼陣営の偽物。発言の筋を比べよう。', '焦って初日に吊り過ぎると村が不利に。情報を集めてから動こう。'] },
+  SEER:     { name: '占い師', icon: '🔮', team: 'village', color: '#818cf8',
+    desc: '毎晩1人を占い、その人が「人狼か否か」を知ることができる村人陣営の切り札。得た情報をいかに村へ伝えるかが勝敗を分けます。',
+    ability: '【夜の能力】毎晩1人を占い、人狼かどうかを知る',
+    winCon: '【勝利条件】人狼を全員処刑できれば勝ち（村人陣営）',
+    tips: ['初日から毎晩占い、人狼の情報をどんどん集めよう。', '人狼を見つけたら、タイミングを見てCO（正体公開）して村に伝えよう。', '偽占い師(狂人)が現れたら、占い実績と発言の一貫性で信頼を勝ち取れ。', '早すぎるCOは人狼に夜襲われる危険大。騎士の護衛とセットが理想。', '占い結果は具体的に伝えると信用されやすい（誰をいつ占って何だったか）。', '自分が吊られそうな時は迷わずCO。情報を残すことが村の勝利に繋がる。'] },
+  DOCTOR:   { name: '騎士',   icon: '💊', team: 'village', color: '#34d399',
+    desc: '毎晩1人を選んで人狼の襲撃から守る護衛役。占い師を守り切れば村は一気に有利に。縁の下から村を支える重要な役職です。',
+    ability: '【夜の能力】毎晩1人を護衛する（同じ人を連続では守れない）',
+    winCon: '【勝利条件】人狼を全員処刑できれば勝ち（村人陣営）',
+    tips: ['占い師がCOしたら最優先で護衛しよう。村の情報源を守るのが仕事。', '同じ人を2夜連続では守れない。狙われそうな人を読んで分散護衛を。', '自分の存在は基本秘密に。バレると人狼に先に襲われてしまう。', '護衛が成功して襲撃が防がれた夜は、人狼に騎士の存在を悟られる点に注意。', '偽占い師(狂人)を守ってしまわないよう、本物を見極める目も必要。', 'COは「占い師が複数出て本物を守りたい」など、必要な場面まで温存するのも手。'] },
+  MADMAN:   { name: '狂人',   icon: '🃏', team: 'wolf',    color: '#f59e0b',
+    desc: '人狼陣営の協力者。ただし誰が人狼かは知らされず、夜の襲撃にも参加しません。村を混乱させ、人狼の勝利に貢献するのが役目です。',
+    ability: '【夜の能力】なし（人狼が誰かも分からない）',
+    winCon: '【勝利条件】人狼陣営が勝てば自分も勝ち（自分は死んでもOK）',
+    tips: ['偽占い師として「○○が人狼でした」と嘘の結果をCOするのが定番戦術。', '本物の占い師とわざと対立し、村人にどちらが本物か迷わせよう。', '人狼が疑われたら、さりげなく庇って投票先をそらそう。', '自分が吊られても人狼が生き残れば勝ち。身を挺して人狼を守る動きが強い。', '騙りで占い結果を出すと、本物の占い師を炙り出す効果もある。', '人狼の邪魔をしないよう、襲撃されそうな立ち回りも時には有効。'] },
+  MEDIUM:   { name: '霊媒師', icon: '👁️', team: 'village', color: '#a78bfa',
+    desc: '処刑された人が人狼だったか否かを、その夜に知ることができる村人陣営の役職。占い師と並ぶ second 情報源として村を導きます。',
+    ability: '【夜の能力】前日に処刑された人が人狼だったかを知る',
+    winCon: '【勝利条件】人狼を全員処刑できれば勝ち（村人陣営）',
+    tips: ['処刑後に「あの人は人狼/村人でした」と報告し、議論の方向を導こう。', 'COのタイミングが命。早すぎると人狼に夜襲される危険がある。', '占い師と協力すれば、生存者を白黒2つの情報で絞り込める。', '人狼が処刑された時「村人でした」と嘘をつく狂人に騙されないよう注意。', '処刑が誤りだった(村人だった)場合も正直に伝え、軌道修正に役立てよう。', '占い師が偽物だらけの時、霊媒結果が本物判定の決め手になることも。'] },
+  NEKOMATA: { name: '猫又',   icon: '🐱', team: 'village', color: '#fb923c',
+    desc: '村人陣営の特殊役職。人狼に夜襲われると人狼を1人道連れにし、処刑された場合は無関係の生存者1人を道連れにします。存在自体が抑止力です。',
+    ability: '【夜の能力】夜に襲われると人狼1人を道連れ／処刑されると生存者1人を道連れ',
+    winCon: '【勝利条件】人狼を全員処刑できれば勝ち（村人陣営）',
+    tips: ['COすると人狼が「道連れ」を恐れて夜襲を躊躇うことがある。', '処刑時は無関係の村人も道連れになる諸刃の剣。CO時期は慎重に。', '「私を吊ると道連れが出るぞ」と主張し、投票先をそらす盾戦術が有効。', '道連れの相手はランダム。自分が囮になって人狼を減らす動きも狙える。', '人狼側からは最も処刑しづらい役職。生き残って終盤まで圧をかけよう。', '夜に襲われた場合は人狼を確実に1体減らせるので、村にとって大きな保険。'] },
 };
+
+// 役職ガイドの共通HTML（能力・勝利条件・初心者tips）。役職確認画面・図鑑で再利用。
+function roleGuideHtml(info) {
+  if (!info) return '';
+  const line = (txt, color) => txt ? `<div style="font-size:.8rem;color:${color||'#cbd5e1'};line-height:1.6;margin:.15rem 0;">${txt}</div>` : '';
+  const tips = (info.tips && info.tips.length) ? `
+    <div class="rrc-tips">
+      <div class="rrc-tips-title">📖 初心者ガイド ─ 立ち回りのコツ</div>
+      ${info.tips.map(t => `<div class="rrc-tips-item">${t}</div>`).join('')}
+    </div>` : '';
+  return `
+    ${line(info.ability, '#93c5fd')}
+    ${line(info.winCon, '#fcd34d')}
+    ${tips}`;
+}
+
+// ゲーム中に自分の役職を確認できる折りたたみリマインダー（オンライン/ソロ/P2P）
+function myRoleReminder() {
+  const info = ROLES[O.myRole];
+  if (!info) return '';
+  const isWolfTeam = info.team === 'wolf';
+  const allies = (O.myRole==='WEREWOLF' && O.wolfPartnerNames && O.wolfPartnerNames.length)
+    ? `<div style="margin-top:.35rem;font-size:.78rem;color:#fca5a5;">🐺 仲間の人狼: ${O.wolfPartnerNames.map(n=>esc(n)+(n===O.playerName?'（あなた）':'')).join('・')}</div>`
+    : '';
+  return `
+    <details style="margin:.3rem 0;">
+      <summary style="cursor:pointer;list-style:none;font-size:.78rem;color:#94a3b8;padding:.35rem .6rem;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:9px;">
+        🔍 自分の役職を確認（タップで表示）
+      </summary>
+      <div style="margin-top:.35rem;padding:.55rem .75rem;border-radius:9px;border:1px solid ${info.color}55;background:${info.color}12;">
+        <span style="font-size:1.15rem;vertical-align:middle;">${info.icon}</span>
+        <span style="color:${info.color};font-weight:800;vertical-align:middle;"> ${info.name}</span>
+        <span style="font-size:.74rem;color:${isWolfTeam?'#f87171':'#4ade80'};vertical-align:middle;"> 【${isWolfTeam?'人狼チーム':'村人チーム'}】</span>
+        ${allies}
+      </div>
+    </details>`;
+}
+
+// ========== チャット速度設定 ==========
+// 議論チャットの表示速度。大きいほどゆっくり。プレイヤーが画面から変更可能。
+let chatSpeedMult = 1.6; // 既定はゆっくりめ（初心者が読みやすい速度）
+function cycleChatSpeed() {
+  // ゆっくり(1.6) → 標準(1.15) → はやい(0.85) → ゆっくり …
+  chatSpeedMult = chatSpeedMult >= 1.5 ? 1.15 : (chatSpeedMult >= 1.0 ? 0.85 : 1.6);
+  try { localStorage.setItem('jinrou_chatSpeed', String(chatSpeedMult)); } catch(e){}
+}
+function chatSpeedLabel() {
+  return chatSpeedMult >= 1.5 ? '🐢 ゆっくり' : chatSpeedMult >= 1.0 ? '🚶 標準' : '🐇 はやい';
+}
+// 起動時に保存済み速度を復元
+try { const _s = parseFloat(localStorage.getItem('jinrou_chatSpeed')); if (_s>0) chatSpeedMult = _s; } catch(e){}
+// CPUが「考え中」になる時間。速度設定の影響は控えめ（主な調整は readPause 側で行う）
+function typingDelay(personality) {
+  const base = personality==='aggressive' ? (800+Math.random()*700) : (1000+Math.random()*1100);
+  return Math.round(base * (0.8 + 0.25*chatSpeedMult)); // mult 0.85→×1.01, 1.15→×1.09, 1.6→×1.2
+}
+// 発言を読む間（テキスト長に比例。速度設定をそのまま反映する主レバー）
+function readPause(text) {
+  const len = text ? text.length : 12;
+  return Math.round(Math.min(3600, 700 + len*70) * chatSpeedMult);
+}
 
 const CONFIGS = {
   4:  ['WEREWOLF','SEER','VILLAGER','VILLAGER'],
@@ -724,11 +806,6 @@ function renderRoleReveal() {
   const info = ROLES[player.role];
   const teamLabel = info.team === 'wolf' ? '人狼チーム' : '村人チーム';
   const isLast = idx === total - 1;
-  const tipsHtml = (info.tips && info.tips.length) ? `
-    <div class="rrc-tips">
-      <div class="rrc-tips-title">📖 初心者ガイド</div>
-      ${info.tips.map(t => `<div class="rrc-tips-item">${t}</div>`).join('')}
-    </div>` : '';
   return `
     <p class="progress" style="margin-top:1.5rem;">役職確認 ${idx+1} / ${total}</p>
     <div class="role-reveal-card" style="border-color:${info.color}; background:${info.color}14;">
@@ -737,7 +814,7 @@ function renderRoleReveal() {
       <div class="rrc-name" style="color:${info.color};">${info.name}</div>
       <div class="rrc-team">【${teamLabel}】</div>
       <div class="rrc-desc">${info.desc}</div>
-      ${tipsHtml}
+      ${roleGuideHtml(info)}
     </div>
     <button class="btn btn-primary" id="nextReveal">${isLast ? '🌙　ゲーム開始！' : '次の人へ ▶'}</button>
   `;
@@ -1193,6 +1270,8 @@ function bindEvents() {
   on('goLocal',  () => { initState(); mode = 'local'; render(); });
   on('goOnline', () => { mode = 'online'; O.phase = 'setup'; render(); });
   on('goSolo',   () => { initOnline(); mode = 'solo'; O.phase = 'solo_setup'; O.soloTotal = 5; render(); });
+  on('goCodex',  () => { mode = 'codex'; render(); });
+  on('codexBack',() => { mode = 'home'; render(); });
 
   // P2P
   on('goP2P', () => { initOnline(); mode = 'p2p'; O.phase = 'p2p_setup'; O.p2pSub = 'choose'; O.cpuCount = 0; render(); });
@@ -1349,6 +1428,9 @@ function bindEvents() {
     render();
   });
 
+  // DISCUSS - チャット速度切替（ゆっくり/標準/はやい）
+  on('btnChatSpeed', () => { cycleChatSpeed(); render(); });
+
   // DISCUSS - フリーテキスト送信
   on('discFreeSend', () => {
     const input = document.getElementById('discFreeInput');
@@ -1460,8 +1542,10 @@ function bindEvents() {
 
   // ONLINE GAME OVER
   on('oRestart', () => {
+    try { stopMusic(); } catch(e){}
     if (O.ws) O.ws.close();
-    if (mode === 'p2p') P2PEngine.destroy();
+    if (mode === 'solo') SoloEngine.resetTimers();   // ソロの残留タイマー停止
+    if (mode === 'p2p')  P2PEngine.destroy();
     initOnline(); mode = 'home'; render();
   });
 }
@@ -1471,8 +1555,15 @@ const SoloEngine = (() => {
   const CPU_NAMES = ['ハル','ユキ','アオイ','カイ','リン','ソラ','ナギ','ツバキ','コウ','アン','ミオ','レン','サキ','ジン','ノア'];
   let R = {};
 
-  function emit(msg)        { setTimeout(() => handleServer(msg), 0); }
-  function later(ms, fn)    { setTimeout(fn, ms); }
+  let _timers = [];
+  function emit(msg)        { const id = setTimeout(() => handleServer(msg), 0); _timers.push(id); return id; }
+  function later(ms, fn)    { const id = setTimeout(fn, ms); _timers.push(id); return id; }
+  // 前ゲームの残留タイマーを全消去（リスタート時の誤発火＝フェーズ破壊を防ぐ）
+  function resetTimers() {
+    _timers.forEach(clearTimeout); _timers = [];
+    if (R && R._humanTurnTimer) { clearTimeout(R._humanTurnTimer); R._humanTurnTimer = null; }
+    if (R && R._discFallback)   { clearTimeout(R._discFallback);   R._discFallback = null; }
+  }
   function shuffle(a)       { a=[...a]; for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; }
   function rand(a)          { return a[Math.floor(Math.random()*a.length)]; }
   function rInt(lo,hi)      { return lo+Math.floor(Math.random()*(hi-lo+1)); }
@@ -1481,6 +1572,7 @@ const SoloEngine = (() => {
 
   // ── 初期化 ────────────────────────────────────────────
   function init(humanName, total) {
+    resetTimers(); // 前ゲームのタイマーを掃除してからR を作り直す
     total = Math.max(4, Math.min(15, total));
     const cpuPool = shuffle(CPU_NAMES.filter(n=>n!==humanName));
     const players = [{ name: humanName, isCpu: false, alive: true, role: '' }];
@@ -1731,16 +1823,15 @@ const SoloEngine = (() => {
         later(200, advanceDisc);
       }, 30 * 1000);
     } else {
-      // CPUの発言は1.5〜3.5秒かけてゆっくり表示（パーソナリティで速度も変化）
-      const delay = sp.personality==='aggressive' ? rInt(1200,2500) : rInt(1800,3800);
-      later(delay, () => {
+      // CPUの発言: 速度設定に応じて「考え中」表示 → 発言 → 読む間
+      later(typingDelay(sp.personality), () => {
         if (R.phase !== 'discuss') return;
         const text = BRAIN.speak(R, sp);
         BRAIN.parseClaim(R, spName, text); // 自分の発言から claims を登録
         R.discMsgs.push({ name:spName, text });
         emit({ type:'disc_message', name:spName, text });
         R.discIdx++;
-        later(1000, advanceDisc);
+        later(readPause(text), advanceDisc); // テキスト長に比例した読む時間を確保
       });
     }
   }
@@ -1748,6 +1839,7 @@ const SoloEngine = (() => {
   // ── 投票フェーズ ──────────────────────────────────────
   function startVote() {
     R.phase = 'vote'; R.votes = {}; R.humanVoted = false; R.tallyDone = false;
+    if (R._discFallback) { clearTimeout(R._discFallback); R._discFallback = null; } // 議論フォールバックを確実に停止
     const al = alive();
     if (!R.players[0].alive) R.humanVoted = true; // 死亡プレイヤーは投票不要
     emit({ type:'vote_start', alive:al.map(p=>({ name:p.name })) });
@@ -1964,7 +2056,7 @@ const SoloEngine = (() => {
     }
   }
 
-  return { init, handle };
+  return { init, handle, resetTimers };
 })();
 
 // ========== TEMPLATE DEFINITIONS ==========
@@ -1988,6 +2080,15 @@ const TPL = {
     '私は特に怪しいとは思っていません 😊',
     '人狼は焦らせようとしてるかも？ 🐺',
     '今は情報収集の段階ですね 📝',
+    'まず占い師がCOしてから動きたいですね 🔮',
+    '初日に吊り急ぐと村が損をしますよ ⏳',
+    '誰が誰に投票するか、その理由を聞きたい 🗳',
+    '今は黒を探すより、白を固める方が大事かも ⚪',
+    '私はまだ手の内を明かしません。様子見です 🎭',
+    '発言の少ない人と多い人、両極端に注目しています 📈',
+    '昨日の投票の流れ、もう一度整理しませんか？ 🔁',
+    '占い・霊媒の結果が出るまで判断は保留します 🧊',
+    '誘導に乗らされないよう、自分の頭で考えましょう 🧭',
   ],
   accuse: [
     '{n}さんが少し怪しいと思います 🔍',
@@ -2008,6 +2109,14 @@ const TPL = {
     '{n}さんの反応がおかしかった 🚨',
     '{n}さんが人狼を守ろうとしてる気がします 🛡',
     '{n}さん、昨日の発言と矛盾してますよね？ 🔄',
+    '{n}さんの投票先、毎回ズレてて作為を感じます 🧮',
+    '{n}さん、占い師が出た途端に態度を変えましたね 🎭',
+    '{n}さんは安全な意見しか言わない＝隠れてる気が 🫥',
+    '{n}さんのCOタイミング、都合が良すぎませんか？ ⏱',
+    '{n}さんは怪しい人をわざと庇ってる気がします 🛡🐺',
+    'もし{n}さんが白なら、この説明できるはずです 📋',
+    '{n}さん、誰が人狼だと思うか今すぐ答えて 🎤',
+    '{n}さんを吊って白なら、霊媒で確認できます 👁',
   ],
   defend: [
     '私は村人です！信じてください 🙏',
@@ -2028,6 +2137,13 @@ const TPL = {
     '私を疑う前に他の人もよく見てほしい 👁',
     '一度落ち着いてみんなで整理しましょう 📌',
     '証拠もないのに決めつけないでください 🚫',
+    '私を吊っても人狼は減りません。賭けてもいい ⚖️',
+    '私が人狼なら、こんな目立つ動きはしませんよ 🎭',
+    '私を疑う人こそ、視点を逸らしたい人狼では？ 🔄',
+    '私を吊るなら、霊媒で白だと分かりますよ 👁',
+    '今ここで私を吊るのは人狼の思うツボです 🪤',
+    '占い師さん、私を占ってくれれば白だと分かります 🔮',
+    '本物の人狼はもっと冷静です。私は必死ですよ 😤',
   ],
   agree: [
     '{n}さんへの疑惑、私も同感 👍',
@@ -2040,6 +2156,10 @@ const TPL = {
     '{n}さんについての分析は正しいと思います 💯',
     '{n}さんに注目すべきというのは同意見です 🎯',
     '{n}さんの怪しさは私も感じていました 👀',
+    '{n}さんに乗ります。ただ本物の占い結果も待ちたい 🔮',
+    '{n}さん吊りに賛成。でも対抗意見も聞きましょう ⚖️',
+    '{n}さんが白だった時のために理由は残しておこう 📝',
+    '私も{n}さん派ですが、決め打ちは危険かも ⚠️',
   ],
   seer_wolf: [
     '占い師として名乗り出ます 🔮',
@@ -2091,6 +2211,12 @@ const TPL = {
     '今日の議論、誰が一番不自然でしたか？👀',
     'なぜそんなに黙っているのですか？💬',
     '昨夜の出来事、どう分析しますか？🧠',
+    '皆さんは今、誰を一番疑っていますか？指で差して 👉',
+    '占い師が複数いるなら、お互いの結果を照合しましょう 🔮🔮',
+    'もし自分が吊られたら、次は誰を疑うべき？🪦',
+    '騎士は昨夜誰を守ったか、ヒントだけでも？🛡',
+    'この中で一度も疑われてない人、誰か気づいてます？👻',
+    '霊媒結果と占い結果、食い違ってませんか？🔀',
   ],
   pressure: [
     'もう時間がありません、決断の時です ⚡',
@@ -2099,6 +2225,11 @@ const TPL = {
     '証拠は十分、もう迷わない ✊',
     'これ以上引き延ばすのは人狼に有利です 🐺',
     '決断してください！村の命がかかっています 🏚️',
+    '残り人数を考えると、もうミスは許されません 🧮',
+    'ここで吊りを外したら村は負けます。慎重に ⚖️',
+    '人狼は今、私たちが割れるのを待っていますよ 🪤',
+    '黙っている人、今こそ意思表示してください 🎤',
+    '票を分散させたら人狼の思うツボ。まとめましょう 🎯',
   ],
   // ── カミングアウト系（情報あり） ──
   co_seer_wolf: [
@@ -2962,8 +3093,14 @@ const P2PEngine = (() => {
   let R = {};
   let isHost = false;
 
-  function emitLocal(msg) { setTimeout(() => handleServer(msg), 0); }
-  function later(ms, fn)  { setTimeout(fn, ms); }
+  let _timers = [];
+  function emitLocal(msg) { const id = setTimeout(() => handleServer(msg), 0); _timers.push(id); return id; }
+  function later(ms, fn)  { const id = setTimeout(fn, ms); _timers.push(id); return id; }
+  function resetTimers()  {
+    _timers.forEach(clearTimeout); _timers = [];
+    if (R && R._humanTurnTimer) { clearTimeout(R._humanTurnTimer); R._humanTurnTimer = null; }
+    if (R && R._discFallback)   { clearTimeout(R._discFallback);   R._discFallback = null; }
+  }
   function rand(a)        { return a[Math.floor(Math.random()*a.length)]; }
   function shuffle(a)     { a=[...a]; for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; }
   function alive()        { return R.players.filter(p=>p.alive); }
@@ -3101,6 +3238,7 @@ const P2PEngine = (() => {
 
   // ── ゲームスタート ───────────────────────────────────
   function startGame() {
+    resetTimers(); // 前ゲームのタイマーを掃除
     const humanPlayers = R.pendingPlayers || [{ name: R.hostName, isCpu: false }];
     const cpuCount = O.cpuCount || 0;
     const cpuPool = shuffle(CPU_NAMES.filter(n=>!humanPlayers.find(p=>p.name===n)));
@@ -3338,15 +3476,14 @@ const P2PEngine = (() => {
     if (!player || !player.alive) { R.discIdx++; later(300, advanceDisc); return; }
     if (player.isCpu) {
       broadcast({ type:'disc_turn', name:player.name });
-      const delay = (player.personality==='aggressive') ? (1400+Math.random()*1600) : (2000+Math.random()*2200);
-      later(delay, () => {
+      later(typingDelay(player.personality), () => {
         if (R.phase !== 'discuss') return;
         const txt = BRAIN.speak(R, player);
         BRAIN.parseClaim(R, player.name, txt);
         R.discMsgs.push({ name:player.name, text:txt });
         broadcast({ type:'disc_message', name:player.name, text:txt });
         R.discIdx++;
-        later(1000, advanceDisc);
+        later(readPause(txt), advanceDisc); // テキスト長に比例した読む時間を確保
       });
     } else {
       broadcast({ type:'disc_turn', name:player.name });
@@ -3379,6 +3516,7 @@ const P2PEngine = (() => {
   // ── 投票 ─────────────────────────────────────────────
   function startVote() {
     R.phase='vote'; R.votes={}; R.humanVotedSet=new Set(); R.tallyDone=false;
+    if (R._discFallback) { clearTimeout(R._discFallback); R._discFallback = null; } // 議論フォールバックを停止
     const al=alive();
     // 死亡プレイヤーは投票不要
     al.filter(p=>!p.isCpu).forEach(p=>{ /* 生きている人間のみ投票 */ });
@@ -3532,11 +3670,12 @@ const P2PEngine = (() => {
   }
 
   function destroy() {
+    resetTimers(); // 残留タイマーを停止してから破棄
     if (peer) { try{peer.destroy();}catch(e){} peer=null; }
     hostConns={}; connNames={}; guestConn=null; isHost=false; R={};
   }
 
-  return { createRoom, joinRoom, wsSendP2P, startGame, destroy };
+  return { createRoom, joinRoom, wsSendP2P, startGame, destroy, resetTimers };
 })();
 
 // ========== ONLINE STATE ==========
@@ -3988,9 +4127,15 @@ function renderODiscuss() {
     <div class="chips" style="margin-bottom:.4rem;">${aliveChips}</div>
     ${deadListHtml}
     <hr class="div" style="margin:.4rem 0;">
-    <p style="color:#fbbf24; font-size:.82rem; font-weight:700; margin:.3rem 0 .2rem;">
-      💬 議論 ─ ラウンド ${O.discRound} / ${O.discTotalRounds}
-    </p>
+    ${myRoleReminder()}
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:.3rem 0 .2rem;">
+      <p style="color:#fbbf24; font-size:.82rem; font-weight:700; margin:0;">
+        💬 議論 ─ ラウンド ${O.discRound} / ${O.discTotalRounds}
+      </p>
+      <button id="btnChatSpeed" title="チャットの流れる速さを変更" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);color:#94a3b8;border-radius:8px;padding:.22rem .5rem;font-size:.74rem;cursor:pointer;white-space:nowrap;">
+        速度 ${chatSpeedLabel()}
+      </button>
+    </div>
     ${voteReadySection}
     <div class="chat-feed" id="discFeed">${msgs}${typingHtml}${waitHtml}</div>
     ${freeInput}
@@ -4195,10 +4340,7 @@ function renderORole() {
       <div class="rrc-team">【${teamLabel}】</div>
       <div class="rrc-desc">${info.desc}</div>
       ${wpHtml}
-      ${(info.tips && info.tips.length) ? `<div class="rrc-tips">
-        <div class="rrc-tips-title">📖 初心者ガイド</div>
-        ${info.tips.map(t => `<div class="rrc-tips-item">${t}</div>`).join('')}
-      </div>` : ''}
+      ${roleGuideHtml(info)}
     </div>
     <div class="card" style="text-align:center;">
       <p style="color:#64748b; font-size:0.9rem;">全員が役職を確認したら、ホストが夜フェーズへ進めます</p>
@@ -4506,6 +4648,52 @@ function renderHome() {
       <p style="color:#475569; font-size:.83rem; margin-bottom:.7rem;">CPUと1人でお試しプレイ（完全ブラウザ内）</p>
       <button class="btn btn-success" id="goSolo">ソロデモで遊ぶ</button>
     </div>
+    <button class="btn btn-ghost" id="goCodex" style="margin-top:.3rem;">📖　役職図鑑・遊び方ガイドを見る</button>
+  `;
+}
+
+// ========== 役職図鑑（いつでも閲覧できる初心者向けガイド） ==========
+function renderCodex() {
+  const order = ['WEREWOLF','MADMAN','VILLAGER','SEER','DOCTOR','MEDIUM','NEKOMATA'];
+  const cards = order.map(key => {
+    const info = ROLES[key];
+    if (!info) return '';
+    const teamLabel = info.team === 'wolf' ? '人狼チーム' : '村人チーム';
+    const teamColor = info.team === 'wolf' ? '#f87171' : '#4ade80';
+    return `
+      <div class="role-reveal-card" style="border-color:${info.color}; background:${info.color}10; padding:1.3rem 1.1rem; margin:.7rem 0;">
+        <div style="display:flex;align-items:center;gap:.7rem;">
+          <div style="font-size:2.6rem;">${info.icon}</div>
+          <div style="text-align:left;">
+            <div style="font-size:1.5rem;font-weight:900;color:${info.color};">${info.name}</div>
+            <div style="font-size:.76rem;color:${teamColor};font-weight:700;">【${teamLabel}】</div>
+          </div>
+        </div>
+        <div class="rrc-desc" style="text-align:left;margin-top:.6rem;">${info.desc}</div>
+        <div style="text-align:left;">${roleGuideHtml(info)}</div>
+      </div>`;
+  }).join('');
+  return `
+    ${ph('📖','役職図鑑','全7役職の能力と立ち回りガイド','#818cf8')}
+    <div class="card" style="border:1px solid #4338ca44;">
+      <p style="color:#cbd5e1;font-size:.86rem;line-height:1.7;margin:0;">
+        🎯 <strong>ゲームの目的</strong><br>
+        村人チームは<strong style="color:#4ade80;">人狼を全員見つけて処刑</strong>すれば勝ち。
+        人狼チームは<strong style="color:#f87171;">人狼の数が村人と同数になる</strong>まで村人を減らせば勝ちです。<br>
+        昼は全員で議論して怪しい人を1人処刑し、夜は人狼が村人を襲います。これを繰り返します。
+      </p>
+    </div>
+    <div class="card" style="border:1px solid #4338ca44;">
+      <p style="color:#cbd5e1;font-size:.86rem;line-height:1.7;margin:0;">
+        💬 <strong>CO（カミングアウト）とは</strong><br>
+        「自分は占い師です」のように<strong>自分の役職を公開</strong>すること。
+        占い師や霊媒師は情報を伝えるためにCOし、人狼や狂人は役職を<strong style="color:#f87171;">騙って（偽CO）</strong>村を惑わせます。
+      </p>
+    </div>
+    <p class="sec-label" style="margin-top:1rem;">🎭 役職一覧</p>
+    ${cards}
+    <hr class="div">
+    <button class="btn btn-primary" id="codexBack">← ホームに戻る</button>
   `;
 }
 
@@ -4618,6 +4806,7 @@ function render() {
   if      (mode === 'pre_opening')                         app.innerHTML = renderPreOpening();
   else if (mode === 'opening')                             app.innerHTML = renderOpening();
   else if (mode === 'home')                                app.innerHTML = renderHome();
+  else if (mode === 'codex')                               app.innerHTML = renderCodex();
   else if (mode === 'local')                               app.innerHTML = renderPhase();
   else if (mode === 'solo' && O.phase === 'solo_setup')    app.innerHTML = renderSoloSetup();
   else if (mode === 'p2p'  && O.phase === 'p2p_setup')    app.innerHTML = renderP2PSetup();
