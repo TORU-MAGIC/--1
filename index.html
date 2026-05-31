@@ -350,6 +350,13 @@ details summary:hover { color: #94a3b8; }
 .night-card .nc-name{font-size:.78rem;color:#94a3b8;font-weight:600;word-break:break-all;}
 .night-card .nc-check{position:absolute;top:.3rem;right:.35rem;font-size:.9rem;opacity:0;}
 .night-card.selected .nc-check{opacity:1;}
+/* ── Progression / Detective Rank ── */
+.levelup-banner{background:linear-gradient(135deg,#6b21a8,#4338ca);color:#fff;text-align:center;font-weight:800;padding:.7rem;border-radius:12px;margin:.5rem 0;animation:musicPulse 1.4s ease-in-out infinite;box-shadow:0 0 24px #6b21a866;}
+.note-btn{display:flex;align-items:center;gap:.5rem;width:100%;text-align:left;border-radius:9px;padding:.4rem .6rem;margin:.2rem 0;color:#e2e8f0;cursor:pointer;transition:border-color .15s,background .15s;}
+.xp-bar{background:rgba(255,255,255,.08);border-radius:8px;height:10px;overflow:hidden;margin:.35rem 0;}
+.xp-bar > div{height:100%;background:linear-gradient(90deg,#6b21a8,#818cf8);transition:width .8s ease;}
+@keyframes scorePop{0%{transform:scale(.6);opacity:0;}60%{transform:scale(1.12);}100%{transform:scale(1);opacity:1;}}
+.score-pop{animation:scorePop .5s ease;}
 </style>
 </head>
 <body>
@@ -1318,11 +1325,16 @@ function bindEvents() {
   // SOLO SETUP
   on('soloDec',   () => { if ((O.soloTotal||5) > 4) { O.soloTotal--; render(); } });
   on('soloInc',   () => { if ((O.soloTotal||5) < 15) { O.soloTotal++; render(); } });
+  on('soloDiff_easy',   () => { O.soloDiff='easy';   render(); });
+  on('soloDiff_normal', () => { O.soloDiff='normal'; render(); });
+  on('soloDiff_hard',   () => { O.soloDiff='hard';   render(); });
   on('soloStart', () => {
     const name = (val('soloName')||'').trim() || 'あなた';
     O.playerName = name;
     O.pid = 0;
     O.isHost = true;
+    O.soloDiff = O.soloDiff || 'normal';
+    window._soloSharp = O.soloDiff==='hard' ? 1.4 : O.soloDiff==='easy' ? 0.6 : 1.0;
     SoloEngine.init(name, O.soloTotal || 5);
   });
 
@@ -1516,6 +1528,7 @@ function bindEvents() {
     // wolf: ステルスグリッドから選択、それ以外: ドロップダウン
     const target = (action === 'wolf') ? (O._wolfNightSel || '') : val('oNightTgt');
     if (!action || !target) return;
+    if (action === 'doctor') O._myLastGuard = target; // 戦績: 護衛成功判定用
     wsSend({type:'night_action', action, target});
     O.nightActionDone = true;
     O._wolfNightSel = null;
@@ -1526,8 +1539,10 @@ function bindEvents() {
 
   // ONLINE VOTE
   on('oVoteSend', () => {
+    if (O.voteSubmitted) return; // 二重投票防止
     const target = val('oVoteTgt');
     if (!target) return;
+    (O.myVotes = O.myVotes||[]).push(target); // 戦績スコア用（自分の投票履歴）
     wsSend({type:'vote', target});
     O.voteSubmitted = true;
     render();
@@ -1538,7 +1553,7 @@ function bindEvents() {
 
   // ONLINE VOTE RESULT → NEXT
   on('oNextNight', () => wsSend({type:'next_night'}));
-  on('oGoGameOver', () => { O.phase = 'game_over'; render(); });
+  on('oGoGameOver', () => { if (['solo','p2p','online'].includes(mode)) scoreGame(); O.phase = 'game_over'; render(); });
 
   // ONLINE GAME OVER
   on('oRestart', () => {
@@ -2480,7 +2495,8 @@ const BRAIN = (function(){
     if (!wolves.length) return;
     // 大規模戦（10人以上）ならパーソナリティ問わず騙りを行う確率上昇
     const total = R.players.length;
-    const tryProb = total >= 10 ? 0.85 : total >= 7 ? 0.55 : 0.30;
+    let tryProb = total >= 10 ? 0.85 : total >= 7 ? 0.55 : 0.30;
+    tryProb = Math.min(0.95, tryProb * (window._soloSharp || 1)); // 難易度で騙り頻度を調整
     if (Math.random() > tryProb) return;
     // 騙り役は bluffer か aggressive がベスト
     const faker = wolves.find(w=>w.personality==='bluffer') || wolves.find(w=>w.personality==='aggressive') || rand(wolves);
@@ -2969,6 +2985,308 @@ const BRAIN = (function(){
 
   return { initR, parseClaim, speak, vote, wolfNightTarget, bumpSuspicion, bumpCover };
 })();
+
+// ========== PROGRESSION & DETECTIVE SCORE（ソロの成長・中毒性レイヤー） ==========
+// localStorage に戦績を保存し、推理スコア→経験値→探偵ランクへ成長させる。
+// マルチプレイには一切影響しない（mode==='solo' のときだけ呼ばれる）。
+const PROGRESS = (() => {
+  const KEY = 'jinrou_profile_v2';
+
+  const RANKS = [
+    { min: 1,  name: '村の新入り',   icon: '🌱', color:'#94a3b8' },
+    { min: 3,  name: '見習い探偵',   icon: '🔍', color:'#60a5fa' },
+    { min: 5,  name: '一人前の探偵', icon: '🕵️', color:'#34d399' },
+    { min: 8,  name: '名探偵',       icon: '🎩', color:'#a78bfa' },
+    { min: 12, name: '人狼ハンター', icon: '🏹', color:'#fbbf24' },
+    { min: 17, name: '月夜の賢者',   icon: '🌙', color:'#f472b6' },
+    { min: 24, name: '伝説の村長',   icon: '👑', color:'#f59e0b' },
+  ];
+  function rankFor(level){ let r=RANKS[0]; for(const x of RANKS){ if(level>=x.min) r=x; } return r; }
+  function reqForNext(level){ return 80 + (level-1)*45; }
+  function levelInfo(totalXp){
+    let level=1, rem=Math.max(0, totalXp|0);
+    while(rem >= reqForNext(level) && level<200){ rem-=reqForNext(level); level++; }
+    return { level, intoLevel:rem, neededForNext:reqForNext(level), rank:rankFor(level), totalXp:Math.max(0,totalXp|0) };
+  }
+
+  function blank(){
+    return { totalXp:0, gamesPlayed:0, wins:0, streak:0, bestStreak:0,
+             roleWins:{}, achievements:[], perfectReads:0,
+             daily:{ date:null, id:null, done:false }, dailyCombo:0, dailyLastDate:null };
+  }
+  function load(){
+    try { const j = JSON.parse(localStorage.getItem(KEY)); if(j&&typeof j==='object'){ return Object.assign(blank(), j); } } catch(e){}
+    return blank();
+  }
+  function save(p){ try { localStorage.setItem(KEY, JSON.stringify(p)); } catch(e){} }
+
+  function todayStr(d){ d=d||new Date(); const z=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}`; }
+  function hash(s){ let h=0; for(let i=0;i<s.length;i++){ h=(h*31+s.charCodeAt(i))|0; } return Math.abs(h); }
+
+  // デイリーミッション（役職に依存せず達成可能なものを中心に）
+  const MISSIONS = [
+    { id:'win',     label:'今日の勝利を掴め',                bonus:60, check:(c)=>c.won },
+    { id:'catch',   label:'投票で人狼陣営を処刑に追い込め',  bonus:60, check:(c)=>c.voteHits>=1 },
+    { id:'note',    label:'捜査ノートで人狼を見抜け',        bonus:60, check:(c)=>c.correctSuspects>=1 },
+    { id:'survive', label:'最後まで生き延びろ',              bonus:55, check:(c)=>c.survived },
+    { id:'clean',   label:'無実の村人を誤認せず推理せよ',    bonus:70, check:(c)=>c.correctSuspects>=1 && c.wrongSuspects===0 },
+    { id:'streak2', label:'2連勝を達成せよ',                 bonus:80, check:(c)=>c.won && c.streakAfter>=2 },
+  ];
+  function missionFor(dateStr){ dateStr=dateStr||todayStr(); return MISSIONS[hash(dateStr)%MISSIONS.length]; }
+
+  const ACHIEVEMENTS = [
+    { id:'first_game', icon:'🎮', name:'初陣',         desc:'はじめてゲームを完了した',            test:(p,c)=>p.gamesPlayed>=1 },
+    { id:'first_win',  icon:'🏆', name:'初勝利',       desc:'はじめて勝利した',                    test:(p,c)=>c.won },
+    { id:'streak3',    icon:'🔥', name:'三連勝',       desc:'3連勝を達成',                         test:(p,c)=>p.streak>=3 },
+    { id:'streak5',    icon:'💥', name:'五連勝',       desc:'5連勝を達成',                         test:(p,c)=>p.streak>=5 },
+    { id:'perfect',    icon:'🧠', name:'完全推理',     desc:'6人以上の戦で全人狼を的中＆誤認ゼロ', test:(p,c)=>c.players>=6 && c.wolvesTotal>=1 && c.correctSuspects>=c.wolvesTotal && c.wrongSuspects===0 },
+    { id:'seer_win',   icon:'🔮', name:'占星術の冴え', desc:'占い師で勝利',                        test:(p,c)=>c.won && c.myRole==='SEER' },
+    { id:'wolf_win',   icon:'🐺', name:'月夜の狩人',   desc:'人狼陣営で勝利',                      test:(p,c)=>c.won && c.myTeam==='wolf' },
+    { id:'guardian',   icon:'🛡️', name:'鉄壁の守護',   desc:'騎士で護衛を成功させ勝利',            test:(p,c)=>c.won && c.myRole==='DOCTOR' && c.guard>=1 },
+    { id:'survivor',   icon:'🍀', name:'生存者',       desc:'7人以上の戦で生き残って勝利',         test:(p,c)=>c.won && c.survived && c.players>=7 },
+    { id:'detective',  icon:'🎩', name:'名探偵',       desc:'名探偵ランクに到達',                  test:(p,c)=>levelInfo(p.totalXp).level>=8 },
+    { id:'daily3',     icon:'📅', name:'皆勤賞',       desc:'デイリーを3日連続で達成',             test:(p,c)=>p.dailyCombo>=3 },
+    { id:'veteran',    icon:'🎖️', name:'歴戦の村人',   desc:'20ゲームをプレイ',                    test:(p,c)=>p.gamesPlayed>=20 },
+  ];
+
+  // 推理スコアの内訳を計算
+  function computeScore(c){
+    const lines = [];
+    const add = (label, pts) => { if(Math.round(pts)!==0) lines.push({label, pts:Math.round(pts)}); };
+    add(c.won ? '🏆 勝利ボーナス' : '🎌 参加ボーナス', c.won ? 120 : 25);
+    if (c.survived) add('🍀 最後まで生存', 25);
+    let noteNet = c.correctSuspects*30 + c.correctTrusts*12 - c.wrongSuspects*12 - c.wrongTrusts*18;
+    if (noteNet!==0 || c.markCount>0) add(`🕵️ 捜査ノート（的中${c.correctSuspects}・誤認${c.wrongSuspects}）`, noteNet);
+    if (c.voteHits>0) add(`🗳️ ${c.myTeam==='wolf'?'村人を欺く投票':'人狼への的中投票'} ×${c.voteHits}`, c.voteHits*18);
+    if (c.myRole==='SEER'   && c.seerHits>0) add(`🔮 占いで人狼を発見 ×${c.seerHits}`, c.seerHits*14);
+    if (c.myRole==='DOCTOR' && c.guard>0)    add(`💊 護衛成功 ×${c.guard}`, c.guard*18);
+    const subtotal = lines.reduce((a,b)=>a+b.pts,0);
+    const diffMult = c.diff==='hard'?1.3 : c.diff==='easy'?0.8 : 1.0;
+    if (diffMult!==1) add(`⚙️ 難易度補正（${c.diff==='hard'?'むずかしい':'やさしい'}）`, subtotal*(diffMult-1));
+    const total = Math.max(5, Math.round(subtotal*diffMult));
+    return { lines, total };
+  }
+
+  function recordGame(ctx){
+    const p = load();
+    const isWolfTeam = r => r==='WEREWOLF' || r==='MADMAN';
+    const me = (ctx.players||[]).find(x=>x.name===ctx.myName) || {};
+    const survived = !!me.alive;
+    const myTeam = (ROLES[ctx.myRole]||{}).team || 'village';
+    const won = myTeam === ctx.winner;
+    const others = (ctx.players||[]).filter(x=>x.name!==ctx.myName);
+    const wolvesTotal = others.filter(x=>isWolfTeam(x.role)).length;
+    const nb = ctx.notebook||{};
+    let correctSuspects=0, wrongSuspects=0, correctTrusts=0, wrongTrusts=0, markCount=0;
+    others.forEach(x=>{
+      const m = nb[x.name]; if(!m) return; markCount++;
+      const wolf = isWolfTeam(x.role);
+      if(m==='suspect'){ wolf?correctSuspects++:wrongSuspects++; }
+      else if(m==='trust'){ wolf?wrongTrusts++:correctTrusts++; }
+    });
+    const roleOf = n => { const f=(ctx.players||[]).find(x=>x.name===n); return f?f.role:null; };
+    let voteHits=0;
+    (ctx.humanVotes||[]).forEach(t=>{ const r=roleOf(t); if(r==null) return;
+      if(myTeam==='wolf'){ if(!isWolfTeam(r)) voteHits++; } else { if(isWolfTeam(r)) voteHits++; } });
+    const streakAfter = won ? (p.streak+1) : 0;
+    const sc = computeScore({ won, survived, myTeam, myRole:ctx.myRole,
+      correctSuspects, wrongSuspects, correctTrusts, wrongTrusts, markCount,
+      voteHits, seerHits:ctx.seerHits||0, guard:ctx.guard||0, diff:ctx.diff||'normal' });
+
+    // デイリー
+    const tStr = todayStr();
+    const mission = missionFor(tStr);
+    let dailyJustDone=false, dailyBonus=0;
+    if (p.daily.date !== tStr) p.daily = { date:tStr, id:mission.id, done:false };
+    if (!p.daily.done && mission.check({ won, survived, voteHits, correctSuspects, wrongSuspects, streakAfter })) {
+      p.daily.done = true; dailyJustDone=true; dailyBonus = mission.bonus;
+      const y = todayStr(new Date(Date.now()-86400000));
+      p.dailyCombo = (p.dailyLastDate===y) ? (p.dailyCombo+1) : 1;
+      p.dailyLastDate = tStr;
+    }
+
+    // プロフィール更新
+    const before = levelInfo(p.totalXp);
+    const xpGained = sc.total + dailyBonus;
+    p.totalXp += xpGained;
+    p.gamesPlayed += 1;
+    if (won) { p.wins+=1; p.streak+=1; p.bestStreak=Math.max(p.bestStreak,p.streak);
+               p.roleWins[ctx.myRole]=(p.roleWins[ctx.myRole]||0)+1; }
+    else p.streak = 0;
+    if (correctSuspects>=wolvesTotal && wolvesTotal>=1 && wrongSuspects===0 && (ctx.players||[]).length>=6) p.perfectReads+=1;
+
+    // 実績
+    const achCtx = { won, survived, myRole:ctx.myRole, myTeam, players:(ctx.players||[]).length,
+      wolvesTotal, correctSuspects, wrongSuspects, guard:ctx.guard||0 };
+    const newAch = [];
+    ACHIEVEMENTS.forEach(a=>{ if(!p.achievements.includes(a.id) && a.test(p, achCtx)){ p.achievements.push(a.id); newAch.push(a); } });
+
+    const after = levelInfo(p.totalXp);
+    save(p);
+    return {
+      scoreLines: sc.lines, scoreTotal: sc.total,
+      xpGained, dailyBonus, dailyJustDone, mission, dailyDone:p.daily.done,
+      before, after, leveledUp: after.level>before.level, rankChanged: after.rank.name!==before.rank.name,
+      won, survived, streak:p.streak, bestStreak:p.bestStreak, newAchievements:newAch,
+      gamesPlayed:p.gamesPlayed, wins:p.wins,
+      winRate: p.gamesPlayed?Math.round(p.wins/p.gamesPlayed*100):0,
+      achTotal:ACHIEVEMENTS.length, achHave:p.achievements.length,
+    };
+  }
+
+  function summary(){
+    const p = load();
+    const info = levelInfo(p.totalXp);
+    const tStr = todayStr();
+    const mission = missionFor(tStr);
+    return { profile:p, info, mission, dailyDone:(p.daily.date===tStr && p.daily.done),
+      winRate: p.gamesPlayed?Math.round(p.wins/p.gamesPlayed*100):0,
+      achTotal:ACHIEVEMENTS.length, achHave:p.achievements.length,
+      achievements: ACHIEVEMENTS.map(a=>({...a, have:p.achievements.includes(a.id)})) };
+  }
+  function reset(){ save(blank()); }
+
+  return { recordGame, summary, levelInfo, rankFor, missionFor, todayStr, RANKS, ACHIEVEMENTS, reset };
+})();
+
+// ── 成長システムの描画ヘルパー ──
+function renderXpBar(info){
+  const pct = info.neededForNext>0 ? Math.min(100, Math.round(info.intoLevel/info.neededForNext*100)) : 0;
+  return `<div class="xp-bar"><div style="width:${pct}%;"></div></div>
+    <div style="display:flex;justify-content:space-between;font-size:.72rem;color:#64748b;">
+      <span>Lv.${info.level}</span><span>${info.intoLevel} / ${info.neededForNext} XP</span>
+    </div>`;
+}
+
+function renderHomeStats(){
+  const s = PROGRESS.summary();
+  const p = s.profile, r = s.info.rank;
+  const missionLine = s.dailyDone
+    ? `<span style="color:#4ade80;">✅ 達成！</span> ${esc(s.mission.label)}`
+    : `<span style="color:#fbbf24;">⬜ 今日の挑戦</span> ${esc(s.mission.label)} <span style="color:#64748b;">(+${s.mission.bonus}XP)</span>`;
+  if (p.gamesPlayed===0){
+    return `<div class="card" style="border:1px solid #4338ca55;background:rgba(99,102,241,.07);">
+      <p style="color:#a5b4fc;font-weight:700;margin:0 0 .3rem;">🕵️ 探偵ランクシステム</p>
+      <p style="color:#94a3b8;font-size:.83rem;line-height:1.6;margin:0 0 .5rem;">ソロ・P2P・オンラインで遊ぶたびに<strong>推理スコア</strong>で採点され、経験値が貯まって<strong>探偵ランク</strong>が上がります。捜査ノート・実績・連勝・デイリーで「もう一戦」が止まらない！</p>
+      <div style="font-size:.82rem;color:#cbd5e1;background:rgba(0,0,0,.25);border-radius:9px;padding:.5rem .7rem;">📅 ${missionLine}</div>
+    </div>`;
+  }
+  return `<div class="card" style="border:1px solid ${r.color}55;background:linear-gradient(135deg,${r.color}14,rgba(0,0,0,.2));">
+    <div style="display:flex;align-items:center;gap:.6rem;">
+      <div style="font-size:2.2rem;">${r.icon}</div>
+      <div style="flex:1;">
+        <div style="font-size:1.05rem;font-weight:800;color:${r.color};">${r.name} <span style="font-size:.8rem;color:#94a3b8;">Lv.${s.info.level}</span></div>
+        <div style="font-size:.72rem;color:#64748b;">🔥 ${p.streak}連勝中（最高${p.bestStreak}）・勝率 ${s.winRate}%・${p.gamesPlayed}戦</div>
+      </div>
+    </div>
+    ${renderXpBar(s.info)}
+    <div style="font-size:.8rem;color:#cbd5e1;background:rgba(0,0,0,.25);border-radius:9px;padding:.45rem .7rem;margin-top:.5rem;">📅 ${missionLine}</div>
+    <details style="margin-top:.5rem;">
+      <summary style="cursor:pointer;list-style:none;color:#94a3b8;font-size:.78rem;">🏅 実績 ${s.achHave}/${s.achTotal} ▼</summary>
+      <div style="display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.4rem;">
+        ${s.achievements.map(a=>`<span title="${esc(a.desc)}" style="font-size:.72rem;padding:.2rem .5rem;border-radius:14px;border:1px solid ${a.have?'#fbbf2455':'rgba(255,255,255,.1)'};background:${a.have?'rgba(251,191,36,.12)':'rgba(255,255,255,.03)'};color:${a.have?'#fbbf24':'#475569'};">${a.have?a.icon:'🔒'} ${esc(a.name)}</span>`).join('')}
+      </div>
+    </details>
+  </div>`;
+}
+
+// 捜査ノート（ソロ専用・プレイヤーの能動的な推理ツール）
+function renderNotebook(){
+  if (!['solo','p2p','online'].includes(mode)) return '';
+  const others = (O.alive||[]).filter(p=>p.name!==O.playerName);
+  if (!others.length) return '';
+  const nb = O.notebook||{};
+  const rows = others.map(p=>{
+    const av = getAvatar(p.name, O.players);
+    const m = nb[p.name];
+    const state = m==='suspect' ? `<span style="color:#f87171;font-weight:700;">🐺 怪しい</span>`
+                : m==='trust'   ? `<span style="color:#4ade80;font-weight:700;">🤍 信用</span>`
+                                : `<span style="color:#64748b;">❓ 未定</span>`;
+    const bd = m==='suspect'?'#ef444455':m==='trust'?'#22c55e55':'rgba(255,255,255,.1)';
+    const bg = m==='suspect'?'rgba(239,68,68,.08)':m==='trust'?'rgba(34,197,94,.08)':'rgba(255,255,255,.04)';
+    return `<button class="note-btn" style="border:1px solid ${bd};background:${bg};" onclick="toggleNote('${p.name.replace(/'/g,"\\'")}')">
+      <span style="font-size:1.3rem;">${av.emoji}</span>
+      <span style="flex:1;font-size:.86rem;font-weight:600;">${esc(p.name)}</span>${state}
+    </button>`;
+  }).join('');
+  return `<details open style="margin:.4rem 0;">
+    <summary style="cursor:pointer;list-style:none;color:#a78bfa;font-size:.82rem;font-weight:700;padding:.3rem 0;">
+      🕵️ 捜査ノート ─ タップで「怪しい→信用→未定」（終了時に推理スコアで採点）
+    </summary>
+    <div style="margin-top:.2rem;">${rows}</div>
+  </details>`;
+}
+
+// ソロ専用リザルト（推理スコア・XP・ランク・実績・デイリー）
+function renderSoloRecap(){
+  const g = O.gameRecap;
+  const isV = O.winner==='village', won = g.won;
+  const color = won ? '#4ade80' : '#f87171';
+  const players=(O.finalPlayers&&O.finalPlayers.length)?O.finalPlayers:(O.players||[]);
+  const rows = players.map(p=>{ const info=ROLES[p.role]||{}; const mine=p.name===O.playerName;
+    return `<div class="player-row" style="border-left-color:${info.color||'#666'};${mine?'background:rgba(99,102,241,.12);':''}">
+      <span class="pr-icon">${info.icon||'❓'}</span>
+      <span class="pr-name">${esc(p.name)}${mine?' <span style="color:#a5b4fc;font-size:.7rem;">(あなた)</span>':''}</span>
+      <span class="pr-role" style="color:${info.color||'#aaa'};">${info.name||p.role||'不明'}</span>
+      <span class="pr-status">${p.alive?'✅ 生存':'💀 死亡'}</span>
+    </div>`; }).join('');
+  const scoreLines = g.scoreLines.map(l=>`<div style="display:flex;justify-content:space-between;font-size:.84rem;padding:.18rem 0;color:#cbd5e1;"><span>${l.label}</span><span style="font-weight:700;color:${l.pts>=0?'#4ade80':'#f87171'};">${l.pts>=0?'+':''}${l.pts}</span></div>`).join('');
+  const levelUp = g.leveledUp ? `<div class="levelup-banner">🎉 レベルアップ！ Lv.${g.before.level} → <strong>Lv.${g.after.level}</strong>${g.rankChanged?`　新ランク：${g.after.rank.icon} ${g.after.rank.name}`:''}</div>` : '';
+  const achHtml = g.newAchievements.length ? `<p class="sec-label">🏅 実績解除！</p>
+    ${g.newAchievements.map(a=>`<div style="display:flex;align-items:center;gap:.6rem;background:rgba(251,191,36,.1);border:1px solid #fbbf2444;border-radius:12px;padding:.6rem .8rem;margin:.3rem 0;">
+      <span style="font-size:1.8rem;">${a.icon}</span>
+      <div><div style="font-weight:800;color:#fbbf24;">${esc(a.name)}</div><div style="font-size:.76rem;color:#94a3b8;">${esc(a.desc)}</div></div>
+    </div>`).join('')}` : '';
+  const daily = `<div style="background:${g.dailyDone?'rgba(34,197,94,.1)':'rgba(255,255,255,.04)'};border:1px solid ${g.dailyDone?'#22c55e55':'rgba(255,255,255,.1)'};border-radius:12px;padding:.55rem .8rem;margin:.5rem 0;font-size:.83rem;color:#cbd5e1;">
+    📅 デイリー：${esc(g.mission.label)} ${g.dailyJustDone?`<span style="color:#4ade80;font-weight:700;">✅ 達成！ +${g.dailyBonus}XP</span>`:(g.dailyDone?'<span style="color:#4ade80;">達成済み</span>':'<span style="color:#64748b;">未達成</span>')}
+  </div>`;
+  const r = g.after.rank;
+  return `
+    ${ph(won?'🎉':'🥀', won?'勝利！':'敗北…', won?(isV?'村に平和が戻った':'人狼が村を制した'):'次こそ人狼を見破れ', color)}
+    ${levelUp}
+    <div class="card score-pop" style="border:1px solid ${color}55;background:${color}10;text-align:center;">
+      <p style="color:#94a3b8;font-size:.78rem;letter-spacing:.1em;margin:0;">🕵️ 推理スコア</p>
+      <div style="font-size:2.8rem;font-weight:900;color:${color};line-height:1.1;">${g.scoreTotal}<span style="font-size:1rem;color:#64748b;"> pt</span></div>
+    </div>
+    <div class="card">${scoreLines}
+      <hr class="div" style="margin:.5rem 0;">
+      <div style="display:flex;justify-content:space-between;font-size:.95rem;font-weight:800;"><span style="color:#e2e8f0;">獲得XP</span><span style="color:#a5b4fc;">+${g.xpGained} XP</span></div>
+    </div>
+    <div class="card" style="border:1px solid ${r.color}55;">
+      <div style="display:flex;align-items:center;gap:.6rem;">
+        <div style="font-size:2rem;">${r.icon}</div>
+        <div style="flex:1;"><div style="font-weight:800;color:${r.color};">${r.name} <span style="font-size:.8rem;color:#94a3b8;">Lv.${g.after.level}</span></div>
+        <div style="font-size:.72rem;color:#64748b;">🔥 ${g.streak}連勝中（最高${g.bestStreak}）・勝率 ${g.winRate}%</div></div>
+      </div>
+      ${renderXpBar(g.after)}
+      <div style="text-align:center;font-size:.76rem;color:#64748b;margin-top:.2rem;">次のレベルまであと <strong>${g.after.neededForNext - g.after.intoLevel}</strong> XP</div>
+    </div>
+    ${daily}
+    ${achHtml}
+    <p class="sec-label">📋 全員の役職</p>
+    ${rows}
+    <hr class="div">
+    <button class="btn btn-primary" id="oRestart">🔄　もう一度プレイ！</button>
+  `;
+}
+
+// 推理スコア集計（solo/p2p/online のゲーム終了時に、自分の戦績として1回だけ走る）
+// 各クライアントが自分のプレイヤーのスコアを計算→自分の端末のlocalStorageに保存。
+function scoreGame(){
+  if (!['solo','p2p','online'].includes(mode) || O._scored || !O.winner) return;
+  O._scored = true;
+  const players=(O.finalPlayers&&O.finalPlayers.length)?O.finalPlayers:(O.players||[]).map(p=>({name:p.name,role:undefined,alive:false}));
+  // 対人戦(p2p/online)は難易度概念なし＝常に×1.0。ソロのみ難易度補正。
+  const diff = (mode==='solo') ? (O.soloDiff||'normal') : 'normal';
+  try {
+    O.gameRecap = PROGRESS.recordGame({
+      winner:O.winner, myRole:O.myRole, myName:O.playerName,
+      players, notebook:O.notebook||{},
+      humanVotes:O.myVotes||[], seerHits:O.mySeerHits||0, guard:O.myGuardSuccess||0,
+      diff,
+    });
+  } catch(e) { O.gameRecap=null; O._scored=false; }
+}
 
 // ========== OPENING STORY ==========
 const STORY_SEGMENTS = [
@@ -3716,7 +4034,12 @@ function initOnline() {
     mediumReveal: null,
     // P2P固有
     p2pSub: 'choose', soloTotal: 5,
+    // 成長システム（捜査ノート・難易度・リザルト）※ solo/p2p/online 共通
+    notebook: {}, soloDiff: 'normal', gameRecap: null, _scored: false,
+    // 戦績スコア用の自己追跡（自分の投票履歴・占い的中・護衛成功）
+    myVotes: [], mySeerHits: 0, myGuardSuccess: 0, _myLastGuard: null,
   };
+  if (typeof window!=='undefined') window._soloSharp = 1.0; // 難易度はsoloStartで上書き
 }
 initOnline();
 
@@ -3759,7 +4082,12 @@ function handleServer(data) {
     case 'game_started':
       O.myRole = data.role; O.wolfPartners = data.wolf_partners || [];
       O.players = data.players; O.isHost = data.is_host || O.isHost;
-      O.phase = 'role'; break;
+      O.phase = 'role';
+      if (['solo','p2p','online'].includes(mode)) {
+        O.notebook = {}; O._scored = false; O.gameRecap = null;
+        O.myVotes = []; O.mySeerHits = 0; O.myGuardSuccess = 0; O._myLastGuard = null;
+      }
+      break;
     case 'wolf_chat_start':
       O.wolfPartnerNames = data.wolf_names || [];
       O.wolfChatMsgs = []; O.wolfChatReady = false;
@@ -3776,6 +4104,7 @@ function handleServer(data) {
       O.nightActionNeeded = data; break;
     case 'seer_result':
       O.seerResult = {target: data.target, isWolf: data.is_wolf};
+      if (data.is_wolf) O.mySeerHits = (O.mySeerHits||0) + 1; // 戦績: 占いで人狼発見
       O.nightActionDone = true; break;
     case 'action_ack': case 'wolf_chosen':
       if (data.type === 'wolf_chosen') O.wolfChosen = data.target;
@@ -3783,6 +4112,11 @@ function handleServer(data) {
     case 'discuss_start':
       O.discMsgs = []; O.discRound = data.round; O.discTotalRounds = data.total_rounds;
       O.eliminatedLastNight = data.eliminated; O.alive = data.alive;
+      // 戦績: 騎士の護衛成功を夜明けの結果から推定（守った夜に死者ゼロ＝成功）
+      if (O.myRole==='DOCTOR' && O._myLastGuard) {
+        if (!data.eliminated) O.myGuardSuccess = (O.myGuardSuccess||0) + 1;
+        O._myLastGuard = null;
+      }
       O.currentSpeaker = null; O.isMyDiscTurn = false; O.tplStep = null;
       O.voteReadyNames = []; O.voteReadyAll = false;
       // 夜に殺された人を死亡リストへ（役職確定）
@@ -3896,6 +4230,7 @@ function handleServer(data) {
       }
       O.log = data.log || []; O.eliminatedLastNight = data.eliminated;
       O.phase = 'game_over';
+      if (['solo','p2p','online'].includes(mode)) scoreGame();
       setTimeout(() => spawnConfetti(
         data.winner==='village' ? '#4ade8088' : '#ef444488',
         data.winner==='village' ? '#fbbf2488' : '#f8717188'
@@ -4125,6 +4460,7 @@ function renderODiscuss() {
     ${musicIndicator}
     <p class="sec-label" style="margin:.6rem 0 .2rem;">🧑 生存者 (${O.alive.length}人)</p>
     <div class="chips" style="margin-bottom:.4rem;">${aliveChips}</div>
+    ${renderNotebook()}
     ${deadListHtml}
     <hr class="div" style="margin:.4rem 0;">
     ${myRoleReminder()}
@@ -4540,6 +4876,7 @@ function renderOVote() {
                  cursor:pointer;transition:background .15s;color:#e2e8f0;">
           <span style="font-size:2rem;line-height:1;">${av.emoji}</span>
           <span style="font-size:.75rem;font-weight:600;margin-top:.2rem;">${esc(p.name)}</span>
+          ${(['solo','p2p','online'].includes(mode) && (O.notebook||{})[p.name]) ? `<span style="font-size:.58rem;display:block;color:${O.notebook[p.name]==='suspect'?'#f87171':'#4ade80'};">${O.notebook[p.name]==='suspect'?'🐺怪しい':'🤍信用'}</span>` : ''}
           ${badge}
         </button>`;
       }).join('')}
@@ -4591,6 +4928,7 @@ function renderOVoteResult() {
 }
 
 function renderOGameOver() {
+  if (['solo','p2p','online'].includes(mode) && O.gameRecap) return renderSoloRecap();
   const isV = O.winner === 'village';
   const color = isV ? '#4ade80' : '#f87171';
   const players = (O.finalPlayers && O.finalPlayers.length > 0)
@@ -4624,6 +4962,7 @@ function renderOGameOver() {
 function renderHome() {
   return `
     ${ph('🐺','人狼ゲーム','モードを選んでください')}
+    ${renderHomeStats()}
     <div class="card" style="text-align:center; margin:.8rem 0; border:1px solid #059669;">
       <div style="font-size:2.2rem; margin-bottom:.3rem;">🌐</div>
       <h3 style="color:#34d399; margin-bottom:.3rem;">P2Pオンライン <span class="p2p-badge"><span class="p2p-dot"></span>サーバー不要</span></h3>
@@ -4765,8 +5104,19 @@ function renderP2PSetup() {
 function renderSoloSetup() {
   const total = O.soloTotal || 5;
   const roleNames = (CONFIGS[total]||[]).map(r=>ROLES[r]?.name||r).join('・');
+  const diff = O.soloDiff || 'normal';
+  const s = PROGRESS.summary();
+  const diffBtns = ['easy','normal','hard'].map(d=>{
+    const cur = diff===d;
+    const lbl = d==='easy'?'やさしい':d==='normal'?'ふつう':'むずかしい';
+    const mult = d==='easy'?'XP×0.8':d==='normal'?'XP×1.0':'XP×1.3';
+    return `<button id="soloDiff_${d}" style="flex:1;padding:.5rem .3rem;border-radius:9px;border:1px solid ${cur?'#6b21a8':'rgba(255,255,255,.14)'};background:${cur?'rgba(107,33,168,.25)':'rgba(255,255,255,.05)'};color:${cur?'#c4b5fd':'#94a3b8'};font-size:.82rem;font-weight:700;cursor:pointer;line-height:1.3;">${lbl}<br><span style="font-size:.64rem;color:#64748b;">${mult}</span></button>`;
+  }).join('');
   return `
-    ${ph('🎮','ソロデモモード','CPUと一緒に役職をお試し！','#34d399')}
+    ${ph('🎮','ソロデモモード','CPUと対戦して探偵ランクを上げよう！','#34d399')}
+    <div style="text-align:center;font-size:.8rem;color:#94a3b8;margin:.1rem 0 .5rem;">
+      ${s.info.rank.icon} ${s.info.rank.name} Lv.${s.info.level}　・　📅 ${s.dailyDone?'<span style="color:#4ade80;">デイリー達成✅</span>':esc(s.mission.label)}
+    </div>
     <div class="card">
       <label>あなたの名前</label>
       <input type="text" id="soloName" value="${esc(O.playerName||'')}" placeholder="名前を入力（例：たろう）">
@@ -4779,9 +5129,11 @@ function renderSoloSetup() {
       <p style="color:#475569; font-size:0.8rem; text-align:center; margin-bottom:0.4rem;">
         あなた1人 ＋ CPU ${total-1}人
       </p>
-      <p style="color:#64748b; font-size:0.78rem; text-align:center; margin-bottom:0.9rem;">
+      <p style="color:#64748b; font-size:0.78rem; text-align:center; margin-bottom:0.7rem;">
         役職構成：${roleNames}
       </p>
+      <label>難易度（CPUの賢さ・獲得XPに影響）</label>
+      <div style="display:flex;gap:.4rem;margin:.2rem 0 .8rem;">${diffBtns}</div>
       <button class="btn btn-success" id="soloStart">🎮　ゲームスタート！</button>
     </div>
     <div class="card" style="background:rgba(52,211,153,0.05); border:1px solid #05966944;">
@@ -4848,6 +5200,14 @@ function renderPhase() {
 // ローカルゲーム人狼ターゲット選択（ステルス）
 function localWolfPick(name) {
   S._wolfLocalSel = name;
+  render();
+}
+// 捜査ノート: 怪しい → 信用 → 未定 をトグル（ソロ専用）
+function toggleNote(name) {
+  if (!O.notebook) O.notebook = {};
+  const cur = O.notebook[name];
+  const next = cur===undefined ? 'suspect' : cur==='suspect' ? 'trust' : undefined;
+  if (next===undefined) delete O.notebook[name]; else O.notebook[name] = next;
   render();
 }
 function wolfSend(text) {
